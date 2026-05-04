@@ -9,6 +9,7 @@ st.set_page_config(page_title="Gestão de Compras e Transferências", layout="wi
 
 def limpar_v(valor):
     if not valor: return 0.0
+    # Limpa pontos e vírgulas para transformar em número decimal
     s = str(valor).strip().replace('.', '').replace(',', '.')
     try:
         return float(re.sub(r'[^\d.]', '', s))
@@ -24,6 +25,7 @@ def extrair_dados_pdf_web(pdf_file):
                 texto = pagina.extract_text()
                 if not texto: continue
                 for l in texto.split('\n'):
+                    # Identifica linhas que começam com o código do produto
                     if re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
@@ -49,11 +51,11 @@ def extrair_dados_pdf_web(pdf_file):
 
 # --- INTERFACE WEB (BARRA LATERAL) ---
 with st.sidebar:
-    # Busca o arquivo renomeado no seu GitHub
+    # Usando PNG para garantir que apareça em todos os navegadores
     try:
-        st.image("logo.pdf", use_container_width=True)
+        st.image("logo.png", use_container_width=True)
     except:
-        st.error("Arquivo 'logo.pdf' não encontrado no GitHub.")
+        st.error("Arquivo 'logo.png' não encontrado no GitHub.")
     
     st.markdown("---")
     st.header("⚙️ Configurações")
@@ -70,6 +72,7 @@ if uploaded_files:
             dfs_por_filial = {}
             todos_dados = []
             
+            # 1. Carrega todos os PDFs
             for f in uploaded_files:
                 df = extrair_dados_pdf_web(f)
                 if not df.empty:
@@ -84,10 +87,11 @@ if uploaded_files:
                     for nome_destino, df_dest in dfs_por_filial.items():
                         def calcular_logistica(row):
                             cod = row['CODIGO']
+                            # Cálculo da necessidade real
                             necessidade = (row['MEDIA'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Regra de transferência: Estoque > 3 meses em outra unidade
+                                # Regra: Busca estoque parado (> 3 meses) em outras filiais
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -95,12 +99,14 @@ if uploaded_files:
                                     (df_global['MESES_ESTOQUE'] > 3)
                                 ]
                                 if not outras.empty:
+                                    # Pega a filial que tem mais meses de estoque sobrando
                                     cedente = outras.sort_values(by='MESES_ESTOQUE', ascending=False).iloc[0]
                                     qtd = min(necessidade, cedente['ESTOQUE'])
                                     return f"Tirar {int(qtd)} de {cedente['FILIAL_NOME']}", round(max(0, necessidade - qtd), 2)
                             
                             return "0", round(max(0, necessidade), 2)
 
+                        # Aplica a lógica de transferência e compra
                         res = df_dest.apply(calcular_logistica, axis=1)
                         df_dest['TRANSFERENCIA_INTERNA'] = [x[0] for x in res]
                         df_dest['SUGESTAO_COMPRA'] = [x[1] for x in res]
@@ -110,7 +116,7 @@ if uploaded_files:
                         
                         df_dest[cols].to_excel(writer, sheet_name=nome_destino[:30], index=False)
                 
-                st.success("✅ Análise concluída!")
+                st.success("✅ Análise concluída com sucesso!")
                 st.download_button(
                     label="📥 Baixar Relatório Consolidado",
                     data=output.getvalue(),
@@ -118,4 +124,4 @@ if uploaded_files:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
     else:
-        st.info("Aguardando o upload dos PDFs.")
+        st.info("Aguardando o upload dos arquivos PDF para análise.")
