@@ -27,7 +27,6 @@ def extrair_dados_pdf_web(pdf_file):
                     if re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
-                            # Mapeamento do layout Passalacqua
                             dados.append({
                                 'CODIGO': partes[0],
                                 'DESCRICAO': " ".join(partes[1:-11]),
@@ -48,19 +47,20 @@ def extrair_dados_pdf_web(pdf_file):
     except:
         return pd.DataFrame()
 
-# --- INTERFACE WEB ---
+# --- INTERFACE WEB (BARRA LATERAL) ---
 with st.sidebar:
-    # Tenta carregar a logo do repositório
+    # Busca o arquivo renomeado no seu GitHub
     try:
-        st.image("PASSALACQUA-DECOR_Logo-Horizontal-Completo.pdf", use_container_width=True)
+        st.image("logo.pdf", use_container_width=True)
     except:
-        st.error("Logo não encontrada no GitHub. Verifique o nome do arquivo.")
+        st.error("Arquivo 'logo.pdf' não encontrado no GitHub.")
     
     st.markdown("---")
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
 
+# --- CORPO DO SITE ---
 st.title("📊 Gestão de Compras e Transferências")
 st.markdown("### Tapeçaria")
 
@@ -87,7 +87,7 @@ if uploaded_files:
                             necessidade = (row['MEDIA'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Regra: Estoque parado há mais de 3 meses em outra filial
+                                # Regra de transferência: Estoque > 3 meses em outra unidade
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -118,4 +118,4 @@ if uploaded_files:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
     else:
-        st.info("Por favor, carregue os arquivos PDF para análise.")
+        st.info("Aguardando o upload dos PDFs.")
