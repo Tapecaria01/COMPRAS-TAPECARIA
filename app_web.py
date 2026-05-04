@@ -3,13 +3,13 @@ import pandas as pd
 import pdfplumber
 import re
 from io import BytesIO
+from openpyxl.styles import PatternFill # <-- Nova ferramenta para colorir as células
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Gestão de Compras e Transferências", layout="wide")
 
 def limpar_v(valor):
     if not valor: return 0.0
-    # Limpa pontos e vírgulas para transformar em número decimal
     s = str(valor).strip().replace('.', '').replace(',', '.')
     try:
         return float(re.sub(r'[^\d.]', '', s))
@@ -25,7 +25,6 @@ def extrair_dados_pdf_web(pdf_file):
                 texto = pagina.extract_text()
                 if not texto: continue
                 for l in texto.split('\n'):
-                    # Identifica linhas que começam com o código do produto
                     if re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
@@ -51,7 +50,6 @@ def extrair_dados_pdf_web(pdf_file):
 
 # --- INTERFACE WEB (BARRA LATERAL) ---
 with st.sidebar:
-    # Usando PNG para garantir que apareça em todos os navegadores
     try:
         st.image("logo.png", use_container_width=True)
     except:
@@ -72,7 +70,6 @@ if uploaded_files:
             dfs_por_filial = {}
             todos_dados = []
             
-            # 1. Carrega todos os PDFs
             for f in uploaded_files:
                 df = extrair_dados_pdf_web(f)
                 if not df.empty:
@@ -87,11 +84,9 @@ if uploaded_files:
                     for nome_destino, df_dest in dfs_por_filial.items():
                         def calcular_logistica(row):
                             cod = row['CODIGO']
-                            # Cálculo da necessidade real
                             necessidade = (row['MEDIA'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Regra: Busca estoque parado (> 3 meses) em outras filiais
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -99,14 +94,12 @@ if uploaded_files:
                                     (df_global['MESES_ESTOQUE'] > 3)
                                 ]
                                 if not outras.empty:
-                                    # Pega a filial que tem mais meses de estoque sobrando
                                     cedente = outras.sort_values(by='MESES_ESTOQUE', ascending=False).iloc[0]
                                     qtd = min(necessidade, cedente['ESTOQUE'])
                                     return f"Tirar {int(qtd)} de {cedente['FILIAL_NOME']}", round(max(0, necessidade - qtd), 2)
                             
                             return "0", round(max(0, necessidade), 2)
 
-                        # Aplica a lógica de transferência e compra
                         res = df_dest.apply(calcular_logistica, axis=1)
                         df_dest['TRANSFERENCIA_INTERNA'] = [x[0] for x in res]
                         df_dest['SUGESTAO_COMPRA'] = [x[1] for x in res]
@@ -115,6 +108,33 @@ if uploaded_files:
                                 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES_ESTOQUE', 'SUGESTAO_COMPRA', 'TRANSFERENCIA_INTERNA']
                         
                         df_dest[cols].to_excel(writer, sheet_name=nome_destino[:30], index=False)
+                        
+                        # --- ESTILIZAÇÃO DAS CÉLULAS NO EXCEL ---
+                        worksheet = writer.sheets[nome_destino[:30]]
+                        
+                        # Define as cores (Códigos Hexadecimais)
+                        cor_verde = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+                        cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
+                        
+                        # Encontra a posição exata das colunas (O Excel começa a contar do 1)
+                        idx_compra = cols.index('SUGESTAO_COMPRA') + 1
+                        idx_transf = cols.index('TRANSFERENCIA_INTERNA') + 1
+                        
+                        # Passa linha por linha pintando se bater com as regras
+                        for row_num in range(2, len(df_dest) + 2): # Começa na 2 porque a 1 é o cabeçalho
+                            val_compra = worksheet.cell(row=row_num, column=idx_compra).value
+                            val_transf = worksheet.cell(row=row_num, column=idx_transf).value
+                            
+                            # Regra 1: Verde se a sugestão de compra for maior que 0
+                            try:
+                                if float(val_compra) > 0:
+                                    worksheet.cell(row=row_num, column=idx_compra).fill = cor_verde
+                            except:
+                                pass
+                            
+                            # Regra 2: Azul se a transferência for diferente de "0"
+                            if str(val_transf) != "0" and val_transf is not None:
+                                worksheet.cell(row=row_num, column=idx_transf).fill = cor_azul
                 
                 st.success("✅ Análise concluída com sucesso!")
                 st.download_button(
