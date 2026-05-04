@@ -27,6 +27,7 @@ def extrair_dados_pdf_web(pdf_file):
                     if re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
+                            # Mapeamento do layout Passalacqua
                             dados.append({
                                 'CODIGO': partes[0],
                                 'DESCRICAO': " ".join(partes[1:-11]),
@@ -49,8 +50,12 @@ def extrair_dados_pdf_web(pdf_file):
 
 # --- INTERFACE WEB ---
 with st.sidebar:
-    # URL da logo enviada
-    st.image("https://passalacqua.com.br/wp-content/uploads/2021/05/logo-passalacqua.png", width=220)
+    # Tenta carregar a logo do repositório
+    try:
+        st.image("PASSALACQUA-DECOR_Logo-Horizontal-Completo.pdf", use_container_width=True)
+    except:
+        st.error("Logo não encontrada no GitHub. Verifique o nome do arquivo.")
+    
     st.markdown("---")
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
@@ -74,33 +79,43 @@ if uploaded_files:
             if todos_dados:
                 df_global = pd.concat(todos_dados)
                 output = BytesIO()
+                
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     for nome_destino, df_dest in dfs_por_filial.items():
                         def calcular_logistica(row):
                             cod = row['CODIGO']
                             necessidade = (row['MEDIA'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
+                            
                             if necessidade > 0:
-                                # Regra de estoque parado > 3 meses
-                                outras = df_global[(df_global['CODIGO'] == cod) & (df_global['FILIAL_NOME'] != nome_destino) & (df_global['ESTOQUE'] > 0) & (df_global['MESES_ESTOQUE'] > 3)]
+                                # Regra: Estoque parado há mais de 3 meses em outra filial
+                                outras = df_global[
+                                    (df_global['CODIGO'] == cod) & 
+                                    (df_global['FILIAL_NOME'] != nome_destino) & 
+                                    (df_global['ESTOQUE'] > 0) & 
+                                    (df_global['MESES_ESTOQUE'] > 3)
+                                ]
                                 if not outras.empty:
                                     cedente = outras.sort_values(by='MESES_ESTOQUE', ascending=False).iloc[0]
                                     qtd = min(necessidade, cedente['ESTOQUE'])
                                     return f"Tirar {int(qtd)} de {cedente['FILIAL_NOME']}", round(max(0, necessidade - qtd), 2)
+                            
                             return "0", round(max(0, necessidade), 2)
 
                         res = df_dest.apply(calcular_logistica, axis=1)
                         df_dest['TRANSFERENCIA_INTERNA'] = [x[0] for x in res]
                         df_dest['SUGESTAO_COMPRA'] = [x[1] for x in res]
                         
-                        cols = ['CODIGO', 'DESCRICAO', 'EMB.', 'JAN/26', 'FEV/26', 'MAR/26', 'ABR/26', 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES_ESTOQUE', 'SUGESTAO_COMPRA', 'TRANSFERENCIA_INTERNA']
+                        cols = ['CODIGO', 'DESCRICAO', 'EMB.', 'JAN/26', 'FEV/26', 'MAR/26', 'ABR/26', 
+                                'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES_ESTOQUE', 'SUGESTAO_COMPRA', 'TRANSFERENCIA_INTERNA']
+                        
                         df_dest[cols].to_excel(writer, sheet_name=nome_destino[:30], index=False)
                 
-                st.success("✅ Análise concluída com sucesso!")
+                st.success("✅ Análise concluída!")
                 st.download_button(
                     label="📥 Baixar Relatório Consolidado",
                     data=output.getvalue(),
-                    file_name="Compras_Tapecaria.xlsx",
+                    file_name="Relatorio_Compras_Tapecaria.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
     else:
-        st.info("Aguardando o upload dos PDFs para iniciar.")
+        st.info("Por favor, carregue os arquivos PDF para análise.")
