@@ -46,7 +46,7 @@ def limpar_v(valor):
 def extrair_dados_pdf_web(pdf_file):
     dados = []
     nome_filial = pdf_file.name.replace(".pdf", "").upper()
-    meses_encontrados = [] # Variável nova para guardar os meses do PDF
+    meses_encontrados = []
     
     try:
         with pdfplumber.open(pdf_file) as pdf:
@@ -54,8 +54,6 @@ def extrair_dados_pdf_web(pdf_file):
                 texto = pagina.extract_text()
                 if not texto: continue
                 
-                # --- NOVIDADE: Scanner dinâmico de meses ---
-                # Procura no texto padrões como feb/2026, mar/2026, mai/26...
                 if len(meses_encontrados) < 4:
                     padrao_mes = r'\b(?:jan|fev|feb|mar|abr|apr|mai|may|jun|jul|ago|aug|set|sep|out|oct|nov|dez|dec)/\d{2,4}\b'
                     encontrados = re.findall(padrao_mes, texto.lower())
@@ -68,8 +66,6 @@ def extrair_dados_pdf_web(pdf_file):
                     if re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
-                            # Agora as colunas recebem nomes genéricos (MES_1, MES_2...) 
-                            # que serão substituídos no final
                             dados.append({
                                 'CODIGO': partes[0],
                                 'DESCRICAO': " ".join(partes[1:-11]),
@@ -100,6 +96,13 @@ with st.sidebar:
     st.markdown("---")
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
+    
+    # --- NOVIDADE: Campo para renomear o arquivo ---
+    nome_sugerido = st.text_input("Nome do arquivo Excel", value="Relatorio_Compras_Tapecaria")
+    # Garante que o nome termine com .xlsx
+    nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
+    
+    st.markdown("---")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
 
 # --- CORPO DO SITE ---
@@ -119,11 +122,9 @@ if uploaded_files:
                     dfs_por_filial[f.name.replace(".pdf", "").upper()] = df
                     todos_dados.append(df)
                     
-                    # Salva os meses que o scanner achou para usar nas colunas
                     if len(meses) >= 4 and not meses_globais:
                         meses_globais = meses[:4]
             
-            # Trava de segurança: Se o PDF vier sem data legível, ele usa um padrão.
             if len(meses_globais) < 4:
                 meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
             
@@ -155,13 +156,11 @@ if uploaded_files:
                         df_dest['TRANSFERENCIA_INTERNA'] = [x[0] for x in res]
                         df_dest['SUGESTAO_COMPRA'] = [x[1] for x in res]
                         
-                        # Lista provisória
                         cols_internas = ['CODIGO', 'DESCRICAO', 'EMB.', 'MES_1', 'MES_2', 'MES_3', 'MES_4', 
                                 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES_ESTOQUE', 'SUGESTAO_COMPRA', 'TRANSFERENCIA_INTERNA']
                         
                         df_dest = df_dest[cols_internas]
                         
-                        # --- A MÁGICA: Substitui "MES_1" pelo nome real (ex: FEB/2026) ---
                         df_dest.rename(columns={
                             'MES_1': meses_globais[0],
                             'MES_2': meses_globais[1],
@@ -169,13 +168,11 @@ if uploaded_files:
                             'MES_4': meses_globais[3]
                         }, inplace=True)
                         
-                        # Lista oficial com os meses dinâmicos
                         cols_finais = ['CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
                                 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES_ESTOQUE', 'SUGESTAO_COMPRA', 'TRANSFERENCIA_INTERNA']
                         
                         df_dest[cols_finais].to_excel(writer, sheet_name=nome_destino[:30], index=False)
                         
-                        # --- ESTILIZAÇÃO DAS CÉLULAS NO EXCEL ---
                         worksheet = writer.sheets[nome_destino[:30]]
                         cor_verde = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
                         cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
@@ -196,11 +193,11 @@ if uploaded_files:
                             if str(val_transf) != "0" and val_transf is not None:
                                 worksheet.cell(row=row_num, column=idx_transf).fill = cor_azul
                 
-                st.success("✅ Análise concluída com sucesso! (Meses atualizados automaticamente)")
+                st.success(f"✅ Análise concluída! O arquivo será salvo como: {nome_final_xlsx}")
                 st.download_button(
                     label="📥 Baixar Relatório Consolidado",
                     data=output.getvalue(),
-                    file_name="Relatorio_Compras_Tapecaria.xlsx",
+                    file_name=nome_final_xlsx, # <-- Usa o nome que você digitou
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
     else:
