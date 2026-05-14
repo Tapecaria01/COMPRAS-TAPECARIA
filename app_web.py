@@ -74,11 +74,11 @@ def extrair_dados_pdf_web(pdf_file):
                                 'MES_2': limpar_v(partes[-9]),
                                 'MES_3': limpar_v(partes[-8]),
                                 'MES_4': limpar_v(partes[-7]),
-                                'MEDIA_SISTEMA': limpar_v(partes[-6]), # Média vinda do PDF
+                                'MEDIA_SISTEMA': limpar_v(partes[-6]), 
                                 'ESTOQUE': limpar_v(partes[-5]),
                                 'RESERVA': limpar_v(partes[-4]),
                                 'COMPRADA': limpar_v(partes[-3]),
-                                'MESES_ESTOQUE': limpar_v(partes[-1]),
+                                'MESES_ESTOQUE': limpar_v(partes[-1]), 
                                 'FILIAL_NOME': nome_filial
                             })
                         except: continue
@@ -141,20 +141,16 @@ if uploaded_files:
                             pico = max(meses_valores)
                             media_sis = row['MEDIA_SISTEMA']
                             
-                            # Se for atípico (Pico > Média * Sensibilidade E Pico > 30 para evitar itens minúsculos)
                             if media_sis > 0 and pico >= (media_sis * fator_pico) and pico >= 30:
-                                # Calcula a média SEM o pico (soma os 3 meses menores e divide por 3)
                                 media_ajustada = (sum(meses_valores) - pico) / 3
                                 return "⚠️ SIM", round(media_ajustada, 2)
                             else:
                                 return "Não", media_sis
 
-                        # Aplica a inteligência
                         res_atipico = df_dest.apply(processar_atipico, axis=1)
                         df_dest['VENDA_ATIPICA'] = [x[0] for x in res_atipico]
                         df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_atipico]
                         
-                        # Função de Cálculo usando a MEDIA_P_CALCULO (que já vem corrigida se houver pico)
                         def calcular_logistica(row):
                             cod = row['CODIGO']
                             media_usada = row['MEDIA_P_CALCULO']
@@ -175,18 +171,27 @@ if uploaded_files:
                             return "0", round(max(0, necessidade), 2)
 
                         res_log = df_dest.apply(calcular_logistica, axis=1)
-                        df_dest['TRANSFERENCIA_INTERNA'] = [x[0] for x in res_log]
-                        df_dest['SUGESTAO_COMPRA'] = [x[1] for x in res_log]
+                        # Aplicando os novos nomes
+                        df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
+                        df_dest['SUGESTAO COMPRA'] = [x[1] for x in res_log]
                         
-                        # Organiza Colunas para o Excel
-                        cols_finais = ['CODIGO', 'DESCRICAO', 'EMB.', 
-                                       meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
-                                       'MEDIA_SISTEMA', 'MEDIA_P_CALCULO', 'ESTOQUE', 'RESERVA', 'COMPRADA', 
-                                       'VENDA_ATIPICA', 'SUGESTAO_COMPRA', 'TRANSFERENCIA_INTERNA']
+                        # --- RENOMEANDO PARA FICAR IGUAL AO PDF E A IMAGEM ---
+                        df_dest.rename(columns={
+                            'MES_1': meses_globais[0], 
+                            'MES_2': meses_globais[1], 
+                            'MES_3': meses_globais[2], 
+                            'MES_4': meses_globais[3],
+                            'MEDIA_SISTEMA': 'MEDIA',
+                            'MESES_ESTOQUE': 'MESES'
+                        }, inplace=True)
                         
-                        # Renomeia MES_1, etc para os nomes reais antes de exportar
-                        df_dest.rename(columns={'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 
-                                                'MES_3': meses_globais[2], 'MES_4': meses_globais[3]}, inplace=True)
+                        # --- ORDEM EXATA CONFORME SUA IMAGEM ---
+                        cols_finais = [
+                            'CODIGO', 'DESCRICAO', 'EMB.', 
+                            meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
+                            'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 
+                            'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA'
+                        ]
                         
                         df_dest[cols_finais].to_excel(writer, sheet_name=nome_destino[:30], index=False)
                         
@@ -196,8 +201,8 @@ if uploaded_files:
                         cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                         cor_amarela = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
                         
-                        idx_compra = cols_finais.index('SUGESTAO_COMPRA') + 1
-                        idx_transf = cols_finais.index('TRANSFERENCIA_INTERNA') + 1
+                        idx_compra = cols_finais.index('SUGESTAO COMPRA') + 1
+                        idx_transf = cols_finais.index('TRANS INTERNA') + 1
                         idx_atipica = cols_finais.index('VENDA_ATIPICA') + 1
                         
                         for row_num in range(2, len(df_dest) + 2):
@@ -215,10 +220,12 @@ if uploaded_files:
                             if val_atipica and "⚠️ SIM" in str(val_atipica):
                                 worksheet.cell(row=row_num, column=idx_atipica).fill = cor_amarela
                 
-                st.success(f"✅ Análise de Inteligência concluída! Salvo como: {nome_final_xlsx}")
+                st.success(f"✅ Análise concluída! Salvo como: {nome_final_xlsx}")
                 st.download_button(
-                    label="📥 Baixar Relatório com Ajuste de Pico",
+                    label="📥 Baixar Relatório Consolidado",
                     data=output.getvalue(),
                     file_name=nome_final_xlsx,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+    else:
+        st.info("Aguardando o upload dos arquivos PDF para análise.")
