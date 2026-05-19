@@ -97,8 +97,7 @@ with st.sidebar:
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     
-    fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=3.0, step=0.5, 
-                                 help="Se um mês vender mais que 3x a média, o sistema ignora esse pico no cálculo.")
+    fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=3.0, step=0.5)
     
     nome_sugerido = st.text_input("Nome do arquivo Excel", value="Relatorio_Compras_Tapecaria")
     nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
@@ -129,63 +128,74 @@ if uploaded_files:
                 meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
             
             if todos_dados:
-                df_global = pd.concat(todos_dados)
+                df_global = pd.concat(todos_dados).reset_index(drop=True)
+                
+                # --- NOVIDADE: Criando o controle de saldo dinâmico na memória do robô ---
+                # Essa coluna vai rastrear o quanto de estoque real ainda sobra para transferir durante o loop
+                df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
+                
                 output = BytesIO()
                 
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     for nome_destino, df_dest in dfs_por_filial.items():
                         
-                        # --- LÓGICA DE DETECÇÃO E AJUSTE DE PICO ---
+                        # Processa picos atípicos
                         def processar_atipico(row):
                             meses_valores = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
                             pico = max(meses_valores)
                             media_sis = row['MEDIA_SISTEMA']
-                            
                             if media_sis > 0 and pico >= (media_sis * fator_pico) and pico >= 30:
                                 media_ajustada = (sum(meses_valores) - pico) / 3
                                 return "⚠️ SIM", round(media_ajustada, 2)
-                            else:
-                                return "Não", media_sis
+                            return "Não", media_sis
 
                         res_atipico = df_dest.apply(processar_atipico, axis=1)
                         df_dest['VENDA_ATIPICA'] = [x[0] for x in res_atipico]
                         df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_atipico]
                         
+                        # --- NOVIDADE: Nova lógica logística com controle de saldo e Média 0 ---
                         def calcular_logistica(row):
                             cod = row['CODIGO']
                             media_usada = row['MEDIA_P_CALCULO']
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
+                                # Filtra potenciais filiais doadoras no df_global dinâmico
+                                # Condição reformulada: Tem que ter estoque disponível E (meses > 3 OU média calculada for igual a 0)
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
-                                    (df_global['ESTOQUE'] > 0) & 
-                                    (df_global['MESES_ESTOQUE'] > 3)
+                                    (df_global['ESTOQUE_DISPONIVEL'] > 0) & 
+                                    ((df_global['MESES_ESTOQUE'] > 3) | (df_global['MEDIA_SISTEMA'] == 0))
                                 ]
+                                
                                 if not outras.empty:
-                                    cedente = outras.sort_values(by='MESES_ESTOQUE', ascending=False).iloc[0]
-                                    qtd = min(necessidade, cedente['ESTOQUE'])
-                                    return f"Tirar {int(qtd)} de {cedente['FILIAL_NOME']}", round(max(0, necessidade - qtd), 2)
+                                    # Ordena dando prioridade para quem tem mais meses ou quem tem média zero (estoque morto)
+                                    cedente = outras.sort_values(by=['MEDIA_SISTEMA', 'MESES_ESTOQUE'], ascending=[True, False]).iloc[0]
+                                    idx_global = cedente.name
+                                    
+                                    saldo_cedente = df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL']
+                                    qtd_transferir = min(necessidade, saldo_cedente)
+                                    
+                                    if qtd_transferir > 0:
+                                        # "Baixa" o saldo consumido no banco de dados global para a próxima filial não usar
+                                        df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_transferir
+                                        
+                                        resto_comprar = round(max(0, necessidade - qtd_transferir), 2)
+                                        return f"Tirar {int(qtd_transferir)} de {cedente['FILIAL_NOME']}", resto_comprar
                             
                             return "0", round(max(0, necessidade), 2)
 
                         res_log = df_dest.apply(calcular_logistica, axis=1)
-                        # Aplicando os novos nomes
                         df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
                         df_dest['SUGESTAO COMPRA'] = [x[1] for x in res_log]
                         
-                        # --- RENOMEANDO PARA FICAR IGUAL AO PDF E A IMAGEM ---
                         df_dest.rename(columns={
-                            'MES_1': meses_globais[0], 
-                            'MES_2': meses_globais[1], 
-                            'MES_3': meses_globais[2], 
-                            'MES_4': meses_globais[3],
-                            'MEDIA_SISTEMA': 'MEDIA',
-                            'MESES_ESTOQUE': 'MESES'
+                            'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 
+                            'MES_3': meses_globais[2], 'MES_4': meses_globais[3],
+                            'MEDIA_SISTEMA': 'MEDIA', 'MESES_ESTOQUE': 'MESES'
                         }, inplace=True)
                         
-                        # --- ORDEM EXATA CONFORME SUA IMAGEM ---
                         cols_finais = [
                             'CODIGO', 'DESCRICAO', 'EMB.', 
                             meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
@@ -220,7 +230,7 @@ if uploaded_files:
                             if val_atipica and "⚠️ SIM" in str(val_atipica):
                                 worksheet.cell(row=row_num, column=idx_atipica).fill = cor_amarela
                 
-                st.success(f"✅ Análise concluída! Salvo como: {nome_final_xlsx}")
+                st.success(f"✅ Análise concluída com sucesso! Salvo como: {nome_final_xlsx}")
                 st.download_button(
                     label="📥 Baixar Relatório Consolidado",
                     data=output.getvalue(),
