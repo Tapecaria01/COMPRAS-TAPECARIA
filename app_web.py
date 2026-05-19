@@ -116,6 +116,11 @@ if uploaded_files:
             todos_dados = []
             meses_globais = []
             
+            # --- Variáveis para o Dashboard ---
+            dash_qtd_comprar = 0
+            dash_qtd_transferida = 0
+            dash_itens_pico = 0
+            
             for f in uploaded_files:
                 df, meses = extrair_dados_pdf_web(f)
                 if not df.empty:
@@ -129,17 +134,21 @@ if uploaded_files:
             
             if todos_dados:
                 df_global = pd.concat(todos_dados).reset_index(drop=True)
-                
-                # --- NOVIDADE: Criando o controle de saldo dinâmico na memória do robô ---
-                # Essa coluna vai rastrear o quanto de estoque real ainda sobra para transferir durante o loop
                 df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
+                
+                # --- Análise do Dashboard: Filial com mais estoque parado ---
+                df_parado = df_global[(df_global['MEDIA_SISTEMA'] == 0) | (df_global['MESES_ESTOQUE'] > 3)]
+                if not df_parado.empty:
+                    parado_por_filial = df_parado.groupby('FILIAL_NOME')['ESTOQUE'].sum().sort_values(ascending=False)
+                    dash_filial_parada = f"{parado_por_filial.index[0]} ({int(parado_por_filial.iloc[0])} un.)"
+                else:
+                    dash_filial_parada = "Nenhum detectado"
                 
                 output = BytesIO()
                 
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     for nome_destino, df_dest in dfs_por_filial.items():
                         
-                        # Processa picos atípicos
                         def processar_atipico(row):
                             meses_valores = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
                             pico = max(meses_valores)
@@ -153,15 +162,15 @@ if uploaded_files:
                         df_dest['VENDA_ATIPICA'] = [x[0] for x in res_atipico]
                         df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_atipico]
                         
-                        # --- NOVIDADE: Nova lógica logística com controle de saldo e Média 0 ---
+                        # Alimenta Dashboard (Picos)
+                        dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
+                        
                         def calcular_logistica(row):
                             cod = row['CODIGO']
                             media_usada = row['MEDIA_P_CALCULO']
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Filtra potenciais filiais doadoras no df_global dinâmico
-                                # Condição reformulada: Tem que ter estoque disponível E (meses > 3 OU média calculada for igual a 0)
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -170,7 +179,6 @@ if uploaded_files:
                                 ]
                                 
                                 if not outras.empty:
-                                    # Ordena dando prioridade para quem tem mais meses ou quem tem média zero (estoque morto)
                                     cedente = outras.sort_values(by=['MEDIA_SISTEMA', 'MESES_ESTOQUE'], ascending=[True, False]).iloc[0]
                                     idx_global = cedente.name
                                     
@@ -178,9 +186,7 @@ if uploaded_files:
                                     qtd_transferir = min(necessidade, saldo_cedente)
                                     
                                     if qtd_transferir > 0:
-                                        # "Baixa" o saldo consumido no banco de dados global para a próxima filial não usar
                                         df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_transferir
-                                        
                                         resto_comprar = round(max(0, necessidade - qtd_transferir), 2)
                                         return f"Tirar {int(qtd_transferir)} de {cedente['FILIAL_NOME']}", resto_comprar
                             
@@ -189,6 +195,17 @@ if uploaded_files:
                         res_log = df_dest.apply(calcular_logistica, axis=1)
                         df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
                         df_dest['SUGESTAO COMPRA'] = [x[1] for x in res_log]
+                        
+                        # Alimenta Dashboard (Compras e Transferências)
+                        dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
+                        
+                        def extrair_numero_transf(texto):
+                            if str(texto) == "0" or not texto: return 0
+                            try:
+                                return int(re.search(r'\d+', str(texto)).group())
+                            except: return 0
+                            
+                        dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_numero_transf).sum()
                         
                         df_dest.rename(columns={
                             'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 
@@ -205,7 +222,6 @@ if uploaded_files:
                         
                         df_dest[cols_finais].to_excel(writer, sheet_name=nome_destino[:30], index=False)
                         
-                        # --- ESTILIZAÇÃO ---
                         worksheet = writer.sheets[nome_destino[:30]]
                         cor_verde = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
                         cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
@@ -230,9 +246,31 @@ if uploaded_files:
                             if val_atipica and "⚠️ SIM" in str(val_atipica):
                                 worksheet.cell(row=row_num, column=idx_atipica).fill = cor_amarela
                 
-                st.success(f"✅ Análise concluída com sucesso! Salvo como: {nome_final_xlsx}")
+                # ==========================================
+                # --- EXIBIÇÃO DO DASHBOARD NA TELA ---
+                # ==========================================
+                st.markdown("---")
+                st.subheader("📈 Resumo da Análise (Geral)")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(label="🛒 Unidades a Comprar", value=f"{int(dash_qtd_comprar)} un.")
+                with col2:
+                    st.metric(label="🔄 Economia Logística", value=f"{int(dash_qtd_transferida)} un.", 
+                              help="Total de mercadoria que deixou de ser comprada graças às transferências sugeridas.")
+                with col3:
+                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens",
+                              help="Produtos que tiveram picos de venda esporádica e tiveram a média corrigida.")
+                with col4:
+                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada,
+                              help="Filial com maior volume de peças paradas (Média 0 ou mais de 3 meses).")
+                
+                st.markdown("---")
+                
+                st.success(f"✅ Arquivo pronto para download!")
                 st.download_button(
-                    label="📥 Baixar Relatório Consolidado",
+                    label="📥 Baixar Relatório Completo",
                     data=output.getvalue(),
                     file_name=nome_final_xlsx,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
