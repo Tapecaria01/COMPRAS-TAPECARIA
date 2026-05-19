@@ -116,7 +116,6 @@ if uploaded_files:
             todos_dados = []
             meses_globais = []
             
-            # --- Variáveis para o Dashboard ---
             dash_qtd_comprar = 0
             dash_qtd_transferida = 0
             dash_itens_pico = 0
@@ -136,7 +135,6 @@ if uploaded_files:
                 df_global = pd.concat(todos_dados).reset_index(drop=True)
                 df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
                 
-                # --- Análise do Dashboard: Filial com mais estoque parado ---
                 df_parado = df_global[(df_global['MEDIA_SISTEMA'] == 0) | (df_global['MESES_ESTOQUE'] > 3)]
                 if not df_parado.empty:
                     parado_por_filial = df_parado.groupby('FILIAL_NOME')['ESTOQUE'].sum().sort_values(ascending=False)
@@ -162,15 +160,18 @@ if uploaded_files:
                         df_dest['VENDA_ATIPICA'] = [x[0] for x in res_atipico]
                         df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_atipico]
                         
-                        # Alimenta Dashboard (Picos)
                         dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
                         
+                        # ========================================================
+                        # --- NOVIDADE: LOGÍSTICA DE MÚLTIPLAS FILIAIS (RASPAR) ---
+                        # ========================================================
                         def calcular_logistica(row):
                             cod = row['CODIGO']
                             media_usada = row['MEDIA_P_CALCULO']
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
+                                # Busca todas as filiais que possuem saldo parado para esse item
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -179,16 +180,33 @@ if uploaded_files:
                                 ]
                                 
                                 if not outras.empty:
-                                    cedente = outras.sort_values(by=['MEDIA_SISTEMA', 'MESES_ESTOQUE'], ascending=[True, False]).iloc[0]
-                                    idx_global = cedente.name
+                                    # Ordena priorizando quem tem média zero (estoque morto) e depois maior volume de meses parados
+                                    outras_ordenadas = outras.sort_values(by=['MEDIA_SISTEMA', 'MESES_ESTOQUE'], ascending=[True, False])
                                     
-                                    saldo_cedente = df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL']
-                                    qtd_transferir = min(necessidade, saldo_cedente)
+                                    transferencias_item = []
+                                    necessidade_restante = necessidade
                                     
-                                    if qtd_transferir > 0:
-                                        df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_transferir
-                                        resto_comprar = round(max(0, necessidade - qtd_transferir), 2)
-                                        return f"Tirar {int(qtd_transferir)} de {cedente['FILIAL_NOME']}", resto_comprar
+                                    # Varre as filiais colhendo o estoque aos poucos
+                                    for idx_global, cedente in outras_ordenadas.iterrows():
+                                        if necessidade_restante <= 0:
+                                            break
+                                        
+                                        saldo_cedente = df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL']
+                                        if saldo_cedente <= 0:
+                                            continue
+                                            
+                                        qtd_a_tirar = min(necessidade_restante, saldo_cedente)
+                                        
+                                        if qtd_a_tirar > 0:
+                                            # Baixa o saldo na memória global do robô
+                                            df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
+                                            necessidade_restante -= qtd_a_tirar
+                                            transferencias_item.append(f"Tirar {int(qtd_a_tirar)} de {cedente['FILIAL_NOME']}")
+                                    
+                                    if transferencias_item:
+                                        # Junta as instruções separando por uma barra vertical " | "
+                                        texto_final_transf = " | ".join(transferencias_item)
+                                        return texto_final_transf, round(max(0, necessidade_restante), 2)
                             
                             return "0", round(max(0, necessidade), 2)
 
@@ -196,13 +214,13 @@ if uploaded_files:
                         df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
                         df_dest['SUGESTAO COMPRA'] = [x[1] for x in res_log]
                         
-                        # Alimenta Dashboard (Compras e Transferências)
                         dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
                         
+                        # Atualização da função de soma para o Dashboard (soma todos os números encontrados no texto)
                         def extrair_numero_transf(texto):
                             if str(texto) == "0" or not texto: return 0
                             try:
-                                return int(re.search(r'\d+', str(texto)).group())
+                                return sum([int(n) for n in re.findall(r'\d+', str(texto))])
                             except: return 0
                             
                         dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_numero_transf).sum()
@@ -246,9 +264,7 @@ if uploaded_files:
                             if val_atipica and "⚠️ SIM" in str(val_atipica):
                                 worksheet.cell(row=row_num, column=idx_atipica).fill = cor_amarela
                 
-                # ==========================================
-                # --- EXIBIÇÃO DO DASHBOARD NA TELA ---
-                # ==========================================
+                # --- EXIBIÇÃO DO DASHBOARD ---
                 st.markdown("---")
                 st.subheader("📈 Resumo da Análise (Geral)")
                 
@@ -258,19 +274,16 @@ if uploaded_files:
                     st.metric(label="🛒 Unidades a Comprar", value=f"{int(dash_qtd_comprar)} un.")
                 with col2:
                     st.metric(label="🔄 Economia Logística", value=f"{int(dash_qtd_transferida)} un.", 
-                              help="Total de mercadoria que deixou de ser comprada graças às transferências sugeridas.")
+                              help="Total de mercadoria reaproveitada de estoques parados entre as filiais.")
                 with col3:
-                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens",
-                              help="Produtos que tiveram picos de venda esporádica e tiveram a média corrigida.")
+                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens")
                 with col4:
-                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada,
-                              help="Filial com maior volume de peças paradas (Média 0 ou mais de 3 meses).")
+                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada)
                 
                 st.markdown("---")
-                
-                st.success(f"✅ Arquivo pronto para download!")
+                st.success(f"✅ Arquivo pronto para download com a inteligência multi-filiais!")
                 st.download_button(
-                    label="📥 Baixar Relatório Completo",
+                    label="📥 Baixar Relatório Avançado",
                     data=output.getvalue(),
                     file_name=nome_final_xlsx,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
