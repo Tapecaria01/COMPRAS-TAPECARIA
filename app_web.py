@@ -162,16 +162,12 @@ if uploaded_files:
                         
                         dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
                         
-                        # ========================================================
-                        # --- NOVIDADE: LOGÍSTICA DE MÚLTIPLAS FILIAIS (RASPAR) ---
-                        # ========================================================
                         def calcular_logistica(row):
                             cod = row['CODIGO']
                             media_usada = row['MEDIA_P_CALCULO']
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Busca todas as filiais que possuem saldo parado para esse item
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -180,13 +176,11 @@ if uploaded_files:
                                 ]
                                 
                                 if not outras.empty:
-                                    # Ordena priorizando quem tem média zero (estoque morto) e depois maior volume de meses parados
                                     outras_ordenadas = outras.sort_values(by=['MEDIA_SISTEMA', 'MESES_ESTOQUE'], ascending=[True, False])
                                     
                                     transferencias_item = []
                                     necessidade_restante = necessidade
                                     
-                                    # Varre as filiais colhendo o estoque aos poucos
                                     for idx_global, cedente in outras_ordenadas.iterrows():
                                         if necessidade_restante <= 0:
                                             break
@@ -198,13 +192,11 @@ if uploaded_files:
                                         qtd_a_tirar = min(necessidade_restante, saldo_cedente)
                                         
                                         if qtd_a_tirar > 0:
-                                            # Baixa o saldo na memória global do robô
                                             df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
                                             necessidade_restante -= qtd_a_tirar
                                             transferencias_item.append(f"Tirar {int(qtd_a_tirar)} de {cedente['FILIAL_NOME']}")
                                     
                                     if transferencias_item:
-                                        # Junta as instruções separando por uma barra vertical " | "
                                         texto_final_transf = " | ".join(transferencias_item)
                                         return texto_final_transf, round(max(0, necessidade_restante), 2)
                             
@@ -216,7 +208,6 @@ if uploaded_files:
                         
                         dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
                         
-                        # Atualização da função de soma para o Dashboard (soma todos os números encontrados no texto)
                         def extrair_numero_transf(texto):
                             if str(texto) == "0" or not texto: return 0
                             try:
@@ -271,14 +262,17 @@ if uploaded_files:
                 col1, col2, col3, col4 = st.columns(4)
                 
                 with col1:
-                    st.metric(label="🛒 Unidades a Comprar", value=f"{int(dash_qtd_comprar)} un.")
+                    st.metric(label="🛒 Unidades a Comprar", value=f"{int(dash_qtd_comprar)} un.",
+                              help="Total de mercadoria que precisa ser adquirida de fornecedores após esgotar o estoque interno.")
                 with col2:
                     st.metric(label="🔄 Economia Logística", value=f"{int(dash_qtd_transferida)} un.", 
                               help="Total de mercadoria reaproveitada de estoques parados entre as filiais.")
                 with col3:
-                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens")
+                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens",
+                              help="Quantidade de produtos que tiveram picos esporádicos ignorados no cálculo para evitar compras superestimadas.")
                 with col4:
-                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada)
+                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada,
+                              help="A filial que concentra o maior volume físico de produtos com média zero ou parados há mais de 3 meses.")
                 
                 st.markdown("---")
                 st.success(f"✅ Arquivo pronto para download com a inteligência multi-filiais!")
