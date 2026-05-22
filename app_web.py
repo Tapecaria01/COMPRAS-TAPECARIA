@@ -135,7 +135,14 @@ if uploaded_files:
                 df_global = pd.concat(todos_dados).reset_index(drop=True)
                 df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
                 
-                df_parado = df_global[(df_global['MEDIA_SISTEMA'] == 0) | (df_global['MESES_ESTOQUE'] > 3)]
+                # Para calcular a soma de vendas dos 4 meses passados na base global
+                df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
+                
+                # Ajuste no dashboard para refletir a nova inteligência de estoque parado
+                df_parado = df_global[
+                    (df_global['MEDIA_SISTEMA'] == 0) | 
+                    ((df_global['MESES_ESTOQUE'] > 3) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
+                ]
                 if not df_parado.empty:
                     parado_por_filial = df_parado.groupby('FILIAL_NOME')['ESTOQUE'].sum().sort_values(ascending=False)
                     dash_filial_parada = f"{parado_por_filial.index[0]} ({int(parado_por_filial.iloc[0])} un.)"
@@ -168,11 +175,18 @@ if uploaded_files:
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
+                                # NOVIDADE: Filtro avançado para identificar as filiais doadoras
+                                # Só pode doar se tiver estoque disponível E bater em uma das regras:
+                                # Regra A: Média do sistema é zero.
+                                # Regra B: Estoque acima de 3 meses E a soma das vendas recentes (meses passados) for menor que 30.
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
                                     (df_global['ESTOQUE_DISPONIVEL'] > 0) & 
-                                    ((df_global['MESES_ESTOQUE'] > 3) | (df_global['MEDIA_SISTEMA'] == 0))
+                                    (
+                                        (df_global['MEDIA_SISTEMA'] == 0) | 
+                                        ((df_global['MESES_ESTOQUE'] > 3) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
+                                    )
                                 ]
                                 
                                 if not outras.empty:
@@ -191,12 +205,10 @@ if uploaded_files:
                                             
                                         qtd_a_tirar = min(necessidade_restante, saldo_cedente)
                                         
-                                        # --- REGRA DA TRANSFERÊNCIA MÍNIMA DE 30 ---
                                         if qtd_a_tirar >= 30:
                                             df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
                                             necessidade_restante -= qtd_a_tirar
                                             
-                                            # --- ABREVIAÇÃO DO NOME DA FILIAL ---
                                             nome_cedente = str(cedente['FILIAL_NOME']).upper()
                                             if 'RIBEIR' in nome_cedente:
                                                 apelido = 'RP'
@@ -248,6 +260,7 @@ if uploaded_files:
                         cor_verde = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
                         cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                         cor_amarela = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                        cor_laranja = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid") # Nova cor laranja claro
                         
                         idx_comprada = cols_finais.index('COMPRADA') + 1 
                         idx_compra = cols_finais.index('SUGESTAO COMPRA') + 1
@@ -260,9 +273,10 @@ if uploaded_files:
                             val_transf = worksheet.cell(row=row_num, column=idx_transf).value
                             val_atipica = worksheet.cell(row=row_num, column=idx_atipica).value
                             
+                            # NOVIDADE: A coluna COMPRADA agora é pintada de laranja claro
                             try:
                                 if float(val_comprada) > 0: 
-                                    worksheet.cell(row=row_num, column=idx_comprada).fill = cor_verde
+                                    worksheet.cell(row=row_num, column=idx_comprada).fill = cor_laranja
                             except: pass
                             
                             try:
@@ -293,10 +307,10 @@ if uploaded_files:
                               help="Quantidade de produtos que tiveram picos esporádicos ignorados no cálculo para evitar compras superestimadas.")
                 with col4:
                     st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada,
-                              help="A filial que concentra o maior volume físico de produtos com média zero ou parados há mais de 3 meses.")
+                              help="A filial que concentra o maior volume físico de produtos com média zero ou parados há mais de 3 meses com baixo giro recente.")
                 
                 st.markdown("---")
-                st.success(f"✅ Arquivo pronto para download com a inteligência multi-filiais!")
+                st.success(f"✅ Arquivo pronto para download com a inteligência de giro recente!")
                 st.download_button(
                     label="📥 Baixar Relatório Avançado",
                     data=output.getvalue(),
