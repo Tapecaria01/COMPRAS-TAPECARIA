@@ -191,10 +191,23 @@ if uploaded_files:
                                             
                                         qtd_a_tirar = min(necessidade_restante, saldo_cedente)
                                         
-                                        if qtd_a_tirar > 0:
+                                        # --- REGRA DA TRANSFERÊNCIA MÍNIMA DE 30 ---
+                                        if qtd_a_tirar >= 30:
                                             df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
                                             necessidade_restante -= qtd_a_tirar
-                                            transferencias_item.append(f"Tirar {int(qtd_a_tirar)} de {cedente['FILIAL_NOME']}")
+                                            
+                                            # --- ABREVIAÇÃO DO NOME DA FILIAL ---
+                                            nome_cedente = str(cedente['FILIAL_NOME']).upper()
+                                            if 'RIBEIR' in nome_cedente:
+                                                apelido = 'RP'
+                                            elif 'LONDRINA' in nome_cedente:
+                                                apelido = 'Lon'
+                                            elif 'FRANCA' in nome_cedente:
+                                                apelido = 'Frc'
+                                            else:
+                                                apelido = cedente['FILIAL_NOME']
+                                                
+                                            transferencias_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
                                     
                                     if transferencias_item:
                                         texto_final_transf = " | ".join(transferencias_item)
@@ -236,17 +249,25 @@ if uploaded_files:
                         cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                         cor_amarela = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
                         
+                        idx_comprada = cols_finais.index('COMPRADA') + 1 
                         idx_compra = cols_finais.index('SUGESTAO COMPRA') + 1
                         idx_transf = cols_finais.index('TRANS INTERNA') + 1
                         idx_atipica = cols_finais.index('VENDA_ATIPICA') + 1
                         
                         for row_num in range(2, len(df_dest) + 2):
+                            val_comprada = worksheet.cell(row=row_num, column=idx_comprada).value 
                             val_compra = worksheet.cell(row=row_num, column=idx_compra).value
                             val_transf = worksheet.cell(row=row_num, column=idx_transf).value
                             val_atipica = worksheet.cell(row=row_num, column=idx_atipica).value
                             
                             try:
-                                if float(val_compra) > 0: worksheet.cell(row=row_num, column=idx_compra).fill = cor_verde
+                                if float(val_comprada) > 0: 
+                                    worksheet.cell(row=row_num, column=idx_comprada).fill = cor_verde
+                            except: pass
+                            
+                            try:
+                                if float(val_compra) > 0: 
+                                    worksheet.cell(row=row_num, column=idx_compra).fill = cor_verde
                             except: pass
                             
                             if str(val_transf) != "0" and val_transf is not None:
