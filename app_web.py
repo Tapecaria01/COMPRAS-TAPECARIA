@@ -97,6 +97,10 @@ with st.sidebar:
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     
+    # --- NOVIDADE: Controle dinâmico de meses para considerar estoque parado ---
+    meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1, 
+                                   help="Define a partir de quantos meses sem giro o produto entra na fila de transferência para outras filiais.")
+    
     fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=3.0, step=0.5)
     
     nome_sugerido = st.text_input("Nome do arquivo Excel", value="Relatorio_Compras_Tapecaria")
@@ -135,13 +139,12 @@ if uploaded_files:
                 df_global = pd.concat(todos_dados).reset_index(drop=True)
                 df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
                 
-                # Para calcular a soma de vendas dos 4 meses passados na base global
                 df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 
-                # Ajuste no dashboard para refletir a nova inteligência de estoque parado
+                # Substituído o "3" pelo "meses_parado" configurado na barra lateral
                 df_parado = df_global[
                     (df_global['MEDIA_SISTEMA'] == 0) | 
-                    ((df_global['MESES_ESTOQUE'] > 3) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
+                    ((df_global['MESES_ESTOQUE'] > meses_parado) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
                 ]
                 if not df_parado.empty:
                     parado_por_filial = df_parado.groupby('FILIAL_NOME')['ESTOQUE'].sum().sort_values(ascending=False)
@@ -175,17 +178,14 @@ if uploaded_files:
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # NOVIDADE: Filtro avançado para identificar as filiais doadoras
-                                # Só pode doar se tiver estoque disponível E bater em uma das regras:
-                                # Regra A: Média do sistema é zero.
-                                # Regra B: Estoque acima de 3 meses E a soma das vendas recentes (meses passados) for menor que 30.
+                                # Substituído o "3" pelo "meses_parado" configurado na barra lateral
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
                                     (df_global['ESTOQUE_DISPONIVEL'] > 0) & 
                                     (
                                         (df_global['MEDIA_SISTEMA'] == 0) | 
-                                        ((df_global['MESES_ESTOQUE'] > 3) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
+                                        ((df_global['MESES_ESTOQUE'] > meses_parado) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
                                     )
                                 ]
                                 
@@ -260,7 +260,7 @@ if uploaded_files:
                         cor_verde = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
                         cor_azul = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                         cor_amarela = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                        cor_laranja = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid") # Nova cor laranja claro
+                        cor_laranja = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
                         
                         idx_comprada = cols_finais.index('COMPRADA') + 1 
                         idx_compra = cols_finais.index('SUGESTAO COMPRA') + 1
@@ -273,7 +273,6 @@ if uploaded_files:
                             val_transf = worksheet.cell(row=row_num, column=idx_transf).value
                             val_atipica = worksheet.cell(row=row_num, column=idx_atipica).value
                             
-                            # NOVIDADE: A coluna COMPRADA agora é pintada de laranja claro
                             try:
                                 if float(val_comprada) > 0: 
                                     worksheet.cell(row=row_num, column=idx_comprada).fill = cor_laranja
@@ -306,8 +305,9 @@ if uploaded_files:
                     st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens",
                               help="Quantidade de produtos que tiveram picos esporádicos ignorados no cálculo para evitar compras superestimadas.")
                 with col4:
+                    # Texto dinâmico acompanhando a configuração escolhida
                     st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada,
-                              help="A filial que concentra o maior volume físico de produtos com média zero ou parados há mais de 3 meses com baixo giro recente.")
+                              help=f"A filial que concentra o maior volume físico de produtos com média zero ou parados há mais de {meses_parado} meses com baixo giro recente.")
                 
                 st.markdown("---")
                 st.success(f"✅ Arquivo pronto para download com a inteligência de giro recente!")
