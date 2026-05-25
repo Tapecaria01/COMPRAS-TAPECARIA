@@ -244,7 +244,6 @@ if uploaded_files:
                             forn = str(row.get('FORNECEDOR', '')).upper()
                             multiplo = 1 
                             
-                            # Adicionado o "TEXTIL J. SERRANO" na regra do múltiplo de 50
                             if (
                                 "CORTTEX" in forn or 
                                 "TEX COMPANY" in forn or 
@@ -258,7 +257,15 @@ if uploaded_files:
                                 multiplo = 50
                             
                             if multiplo > 1:
-                                return math.ceil(sugestao / multiplo) * multiplo
+                                # Lógica de Tolerância (Ponto de virada nos 20 metros)
+                                base = (int(sugestao) // multiplo) * multiplo
+                                resto = sugestao % multiplo
+                                
+                                if resto >= 20:
+                                    return base + multiplo
+                                else:
+                                    return base
+                            
                             return sugestao
 
                         df_dest['SUGESTAO COMPRA'] = [aplicar_multiplos(row, sug) for row, sug in zip(df_dest.to_dict('records'), sugestao_base)]
@@ -330,7 +337,7 @@ if uploaded_files:
                 
                 with col1:
                     st.metric(label="🛒 Unidades a Comprar", value=f"{int(dash_qtd_comprar)} un.",
-                              help="Total de mercadoria que precisa ser adquirida após regras de lote/múltiplos dos fornecedores.")
+                              help="Total de mercadoria que precisa ser adquirida após regras de lote e tolerância dos fornecedores.")
                 with col2:
                     st.metric(label="🔄 Economia Logística", value=f"{int(dash_qtd_transferida)} un.")
                 with col3:
@@ -339,7 +346,7 @@ if uploaded_files:
                     st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada)
                 
                 st.markdown("---")
-                st.success(f"✅ Arquivo pronto para download com regras de fornecedores!")
+                st.success(f"✅ Arquivo pronto para download com regras de tolerância aplicadas!")
                 st.download_button(
                     label="📥 Baixar Relatório Avançado",
                     data=output.getvalue(),
