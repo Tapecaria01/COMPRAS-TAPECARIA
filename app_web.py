@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import pdfplumber
 import re
+import math
 from io import BytesIO
 from openpyxl.styles import PatternFill
 
@@ -47,6 +48,7 @@ def extrair_dados_pdf_web(pdf_file):
     dados = []
     nome_filial = pdf_file.name.replace(".pdf", "").upper()
     meses_encontrados = []
+    fornecedor_atual = "DESCONHECIDO"
     
     try:
         with pdfplumber.open(pdf_file) as pdf:
@@ -63,7 +65,12 @@ def extrair_dados_pdf_web(pdf_file):
                             meses_encontrados.append(m_upper)
 
                 for l in texto.split('\n'):
-                    if re.match(r'^\d{3,6}\s', l):
+                    if "SEGMENTO" in l.upper():
+                        match = re.search(r'SEGMENTO\s*:\s*(.*)', l, re.IGNORECASE)
+                        if match:
+                            fornecedor_atual = match.group(1).strip()
+                            
+                    elif re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
                             dados.append({
@@ -79,7 +86,8 @@ def extrair_dados_pdf_web(pdf_file):
                                 'RESERVA': limpar_v(partes[-4]),
                                 'COMPRADA': limpar_v(partes[-3]),
                                 'MESES_ESTOQUE': limpar_v(partes[-1]), 
-                                'FILIAL_NOME': nome_filial
+                                'FILIAL_NOME': nome_filial,
+                                'FORNECEDOR': fornecedor_atual
                             })
                         except: continue
         return pd.DataFrame(dados), meses_encontrados
@@ -97,10 +105,7 @@ with st.sidebar:
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     
-    # --- NOVIDADE: Controle dinâmico de meses para considerar estoque parado ---
-    meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1, 
-                                   help="Define a partir de quantos meses sem giro o produto entra na fila de transferência para outras filiais.")
-    
+    meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
     fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=3.0, step=0.5)
     
     nome_sugerido = st.text_input("Nome do arquivo Excel", value="Relatorio_Compras_Tapecaria")
@@ -141,7 +146,6 @@ if uploaded_files:
                 
                 df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 
-                # Substituído o "3" pelo "meses_parado" configurado na barra lateral
                 df_parado = df_global[
                     (df_global['MEDIA_SISTEMA'] == 0) | 
                     ((df_global['MESES_ESTOQUE'] > meses_parado) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
@@ -178,7 +182,6 @@ if uploaded_files:
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Substituído o "3" pelo "meses_parado" configurado na barra lateral
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -229,7 +232,37 @@ if uploaded_files:
 
                         res_log = df_dest.apply(calcular_logistica, axis=1)
                         df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
-                        df_dest['SUGESTAO COMPRA'] = [x[1] for x in res_log]
+                        
+                        sugestao_base = [x[1] for x in res_log]
+                        
+                        # =======================================================
+                        # --- LISTA ATUALIZADA DE MÚLTIPLOS POR FORNECEDOR ---
+                        # =======================================================
+                        def aplicar_multiplos(row, sugestao):
+                            if sugestao <= 0: return 0
+                            
+                            forn = str(row.get('FORNECEDOR', '')).upper()
+                            multiplo = 1 
+                            
+                            # Adicionado o "TEXTIL J. SERRANO" na regra do múltiplo de 50
+                            if (
+                                "CORTTEX" in forn or 
+                                "TEX COMPANY" in forn or 
+                                "CIPATEX" in forn or 
+                                "KARSTEN" in forn or 
+                                "ETRURIA" in forn or 
+                                "TELLAIO" in forn or 
+                                "OBER" in forn or
+                                "TEXTIL J. SERRANO" in forn
+                            ):
+                                multiplo = 50
+                            
+                            if multiplo > 1:
+                                return math.ceil(sugestao / multiplo) * multiplo
+                            return sugestao
+
+                        df_dest['SUGESTAO COMPRA'] = [aplicar_multiplos(row, sug) for row, sug in zip(df_dest.to_dict('records'), sugestao_base)]
+                        # -------------------------------------------------------
                         
                         dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
                         
@@ -297,20 +330,16 @@ if uploaded_files:
                 
                 with col1:
                     st.metric(label="🛒 Unidades a Comprar", value=f"{int(dash_qtd_comprar)} un.",
-                              help="Total de mercadoria que precisa ser adquirida de fornecedores após esgotar o estoque interno.")
+                              help="Total de mercadoria que precisa ser adquirida após regras de lote/múltiplos dos fornecedores.")
                 with col2:
-                    st.metric(label="🔄 Economia Logística", value=f"{int(dash_qtd_transferida)} un.", 
-                              help="Total de mercadoria reaproveitada de estoques parados entre as filiais.")
+                    st.metric(label="🔄 Economia Logística", value=f"{int(dash_qtd_transferida)} un.")
                 with col3:
-                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens",
-                              help="Quantidade de produtos que tiveram picos esporádicos ignorados no cálculo para evitar compras superestimadas.")
+                    st.metric(label="⚠️ Vendas Atípicas (Picos)", value=f"{int(dash_itens_pico)} itens")
                 with col4:
-                    # Texto dinâmico acompanhando a configuração escolhida
-                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada,
-                              help=f"A filial que concentra o maior volume físico de produtos com média zero ou parados há mais de {meses_parado} meses com baixo giro recente.")
+                    st.metric(label="📦 Maior Estoque Parado", value=dash_filial_parada)
                 
                 st.markdown("---")
-                st.success(f"✅ Arquivo pronto para download com a inteligência de giro recente!")
+                st.success(f"✅ Arquivo pronto para download com regras de fornecedores!")
                 st.download_button(
                     label="📥 Baixar Relatório Avançado",
                     data=output.getvalue(),
