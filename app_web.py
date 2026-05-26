@@ -242,8 +242,10 @@ if uploaded_files:
                             if sugestao <= 0: return 0
                             
                             forn = str(row.get('FORNECEDOR', '')).upper()
+                            desc = str(row.get('DESCRICAO', '')).upper()
                             multiplo = 1 
                             
+                            # Grupo de fornecedores com Múltiplo de 50
                             if (
                                 "CORTTEX" in forn or 
                                 "TEX COMPANY" in forn or 
@@ -255,6 +257,10 @@ if uploaded_files:
                                 "TEXTIL J. SERRANO" in forn
                             ):
                                 multiplo = 50
+                                
+                            # NOVIDADE: Regra específica para Romplas Uruguai (Múltiplo de 30)
+                            elif "ROMPLAS" in forn and "URUGUAI" in desc:
+                                multiplo = 30
                             
                             if multiplo > 1:
                                 # Lógica de Tolerância (Ponto de virada nos 20 metros)
