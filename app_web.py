@@ -146,6 +146,24 @@ if uploaded_files:
                 
                 df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 
+                # ================================================================
+                # NOVIDADE: CÁLCULO DE ESTOQUE EXCEDENTE (A Mágica da Distribuição)
+                # ================================================================
+                def calcular_excedente(row):
+                    # 1. Se não tem venda nenhuma (morto), tudo está disponível para doar
+                    if row['MEDIA_SISTEMA'] == 0:
+                        return row['ESTOQUE_DISPONIVEL']
+                    # 2. Se a venda é baixíssima e tá parado há muito tempo, tudo disponível
+                    elif row['MESES_ESTOQUE'] > meses_parado and row['TOTAL_VENDAS_RECENTES'] < 30:
+                        return row['ESTOQUE_DISPONIVEL']
+                    # 3. NOVO: Se a filial vende bem, mas tem EXCESSO de estoque, libera a sobra!
+                    else:
+                        excesso = row['ESTOQUE_DISPONIVEL'] - (row['MEDIA_SISTEMA'] * meta)
+                        return max(0, excesso) # Retorna apenas o que sobrou além da meta
+
+                df_global['EXCEDENTE_DISPONIVEL'] = df_global.apply(calcular_excedente, axis=1)
+                # ================================================================
+                
                 df_parado = df_global[
                     (df_global['MEDIA_SISTEMA'] == 0) | 
                     ((df_global['MESES_ESTOQUE'] > meses_parado) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
@@ -182,18 +200,15 @@ if uploaded_files:
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
+                                # Agora o robô procura filiais que tenham EXCEDENTE > 0
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
-                                    (df_global['ESTOQUE_DISPONIVEL'] > 0) & 
-                                    (
-                                        (df_global['MEDIA_SISTEMA'] == 0) | 
-                                        ((df_global['MESES_ESTOQUE'] > meses_parado) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))
-                                    )
+                                    (df_global['EXCEDENTE_DISPONIVEL'] > 0)
                                 ]
                                 
                                 if not outras.empty:
-                                    outras_ordenadas = outras.sort_values(by=['MEDIA_SISTEMA', 'MESES_ESTOQUE'], ascending=[True, False])
+                                    outras_ordenadas = outras.sort_values(by=['MEDIA_SISTEMA', 'EXCEDENTE_DISPONIVEL'], ascending=[True, False])
                                     
                                     transferencias_item = []
                                     necessidade_restante = necessidade
@@ -202,13 +217,19 @@ if uploaded_files:
                                         if necessidade_restante <= 0:
                                             break
                                         
-                                        saldo_cedente = df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL']
+                                        saldo_cedente = df_global.loc[idx_global, 'EXCEDENTE_DISPONIVEL']
                                         if saldo_cedente <= 0:
                                             continue
                                             
-                                        qtd_a_tirar = min(necessidade_restante, saldo_cedente)
+                                        # Puxada Inteligente (Garante os 30 mínimos)
+                                        if necessidade_restante < 30 and saldo_cedente >= 30:
+                                            qtd_a_tirar = 30
+                                        else:
+                                            qtd_a_tirar = min(necessidade_restante, saldo_cedente)
                                         
                                         if qtd_a_tirar >= 30:
+                                            # Desconta tanto do excedente quanto do estoque real
+                                            df_global.loc[idx_global, 'EXCEDENTE_DISPONIVEL'] -= qtd_a_tirar
                                             df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
                                             necessidade_restante -= qtd_a_tirar
                                             
@@ -244,7 +265,6 @@ if uploaded_files:
                             forn = str(row.get('FORNECEDOR', '')).upper()
                             desc = str(row.get('DESCRICAO', '')).upper()
                             
-                            # Regra para Fornecedores com Múltiplo de 50 (Tolerância de 20)
                             if (
                                 "CORTTEX" in forn or 
                                 "TEX COMPANY" in forn or 
@@ -258,14 +278,12 @@ if uploaded_files:
                                 multiplo = 50
                                 tolerancia = 20
                                 
-                            # Regra para Romplas Uruguai com Múltiplo de 30 (Tolerância de 15)
-                            elif "ROMPLAS" in forn and "URUGUAI" in desc:
+                            elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc):
                                 multiplo = 30
                                 tolerancia = 15
                             else:
-                                return sugestao # Sem regra específica, mantém quebrado
+                                return sugestao
                             
-                            # Cálculo aplicando a tolerância/ponto de virada dinâmico
                             base = (int(sugestao) // multiplo) * multiplo
                             resto = sugestao % multiplo
                             
