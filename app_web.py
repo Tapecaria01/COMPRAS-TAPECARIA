@@ -236,16 +236,15 @@ if uploaded_files:
                         sugestao_base = [x[1] for x in res_log]
                         
                         # =======================================================
-                        # --- LISTA ATUALIZADA DE MÚLTIPLOS POR FORNECEDOR ---
+                        # --- LISTA DE MÚLTIPLOS E TOLERÂNCIAS POR FORNECEDOR ---
                         # =======================================================
                         def aplicar_multiplos(row, sugestao):
                             if sugestao <= 0: return 0
                             
                             forn = str(row.get('FORNECEDOR', '')).upper()
                             desc = str(row.get('DESCRICAO', '')).upper()
-                            multiplo = 1 
                             
-                            # Grupo de fornecedores com Múltiplo de 50
+                            # Regra para Fornecedores com Múltiplo de 50 (Tolerância de 20)
                             if (
                                 "CORTTEX" in forn or 
                                 "TEX COMPANY" in forn or 
@@ -257,22 +256,23 @@ if uploaded_files:
                                 "TEXTIL J. SERRANO" in forn
                             ):
                                 multiplo = 50
+                                tolerancia = 20
                                 
-                            # NOVIDADE: Regra específica para Romplas Uruguai (Múltiplo de 30)
+                            # Regra para Romplas Uruguai com Múltiplo de 30 (Tolerância de 15)
                             elif "ROMPLAS" in forn and "URUGUAI" in desc:
                                 multiplo = 30
+                                tolerancia = 15
+                            else:
+                                return sugestao # Sem regra específica, mantém quebrado
                             
-                            if multiplo > 1:
-                                # Lógica de Tolerância (Ponto de virada nos 20 metros)
-                                base = (int(sugestao) // multiplo) * multiplo
-                                resto = sugestao % multiplo
-                                
-                                if resto >= 20:
-                                    return base + multiplo
-                                else:
-                                    return base
+                            # Cálculo aplicando a tolerância/ponto de virada dinâmico
+                            base = (int(sugestao) // multiplo) * multiplo
+                            resto = sugestao % multiplo
                             
-                            return sugestao
+                            if resto >= Mountain_tolerancia := tolerancia:
+                                return base + multiplo
+                            else:
+                                return base
 
                         df_dest['SUGESTAO COMPRA'] = [aplicar_multiplos(row, sug) for row, sug in zip(df_dest.to_dict('records'), sugestao_base)]
                         # -------------------------------------------------------
