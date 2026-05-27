@@ -3,7 +3,7 @@ import pandas as pd
 import pdfplumber
 import re
 import math
-import plotly.express as px # Biblioteca para os novos gráficos interativos
+import plotly.express as px
 from io import BytesIO
 from openpyxl.styles import PatternFill
 
@@ -79,7 +79,7 @@ def extrair_dados_pdf_web(pdf_file):
 # --- INTERFACE WEB (BARRA LATERAL) ---
 with st.sidebar:
     try: st.image("logo.png", use_container_width=True)
-    except: st.error("Arquivo 'logo.png' não encontrado.")
+    except: st.error("Arquivo 'logo.png' não encontrado no GitHub.")
     st.markdown("---")
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
@@ -239,5 +239,3 @@ if uploaded_files:
                 st.dataframe(dfs_por_filial[sel_f], use_container_width=True)
 
     else: st.info("Aguardando upload e clique em 'Processar' para gerar a inteligência.")
-
-Sua apresentação do **Portal de Inteligência Interativo** e o respectivo código estão prontos! Agora, você pode analisar tudo na tela antes mesmo de baixar o arquivo final. Sinta-se à vontade para me pedir qualquer ajuste!
