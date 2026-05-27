@@ -106,7 +106,8 @@ with st.sidebar:
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     
     meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
-    fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=3.0, step=0.5)
+    # NOVIDADE: Sensibilidade ajustada para 2.5 por padrão
+    fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
     
     nome_sugerido = st.text_input("Nome do arquivo Excel", value="Relatorio_Compras_Tapecaria")
     nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
@@ -147,19 +148,16 @@ if uploaded_files:
                 df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 
                 # ================================================================
-                # NOVIDADE: CÁLCULO DE ESTOQUE EXCEDENTE (A Mágica da Distribuição)
+                # CÁLCULO DE ESTOQUE EXCEDENTE
                 # ================================================================
                 def calcular_excedente(row):
-                    # 1. Se não tem venda nenhuma (morto), tudo está disponível para doar
                     if row['MEDIA_SISTEMA'] == 0:
                         return row['ESTOQUE_DISPONIVEL']
-                    # 2. Se a venda é baixíssima e tá parado há muito tempo, tudo disponível
                     elif row['MESES_ESTOQUE'] > meses_parado and row['TOTAL_VENDAS_RECENTES'] < 30:
                         return row['ESTOQUE_DISPONIVEL']
-                    # 3. NOVO: Se a filial vende bem, mas tem EXCESSO de estoque, libera a sobra!
                     else:
                         excesso = row['ESTOQUE_DISPONIVEL'] - (row['MEDIA_SISTEMA'] * meta)
-                        return max(0, excesso) # Retorna apenas o que sobrou além da meta
+                        return max(0, excesso) 
 
                 df_global['EXCEDENTE_DISPONIVEL'] = df_global.apply(calcular_excedente, axis=1)
                 # ================================================================
@@ -179,13 +177,36 @@ if uploaded_files:
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     for nome_destino, df_dest in dfs_por_filial.items():
                         
+                        # =======================================================
+                        # NOVIDADE: NOVO CÉREBRO PARA IDENTIFICAR VENDAS ATÍPICAS
+                        # =======================================================
                         def processar_atipico(row):
                             meses_valores = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
                             pico = max(meses_valores)
                             media_sis = row['MEDIA_SISTEMA']
-                            if media_sis > 0 and pico >= (media_sis * fator_pico) and pico >= 30:
-                                media_ajustada = (sum(meses_valores) - pico) / 3
-                                return "⚠️ SIM", round(media_ajustada, 2)
+                            
+                            # Isola o pico para calcular a média real dos meses normais
+                            outros_meses = meses_valores.copy()
+                            outros_meses.remove(pico)
+                            media_sem_pico = sum(outros_meses) / 3 if sum(outros_meses) > 0 else 0
+                            
+                            # Escolhe a base mais rigorosa/sensível para comparar
+                            if media_sis > 0 and media_sem_pico > 0:
+                                base_comparacao = min(media_sis, media_sem_pico)
+                            elif media_sem_pico > 0:
+                                base_comparacao = media_sem_pico
+                            else:
+                                base_comparacao = media_sis
+                                
+                            # Verifica se o pico estourou o limite esperado (Fator Pico)
+                            if base_comparacao > 0:
+                                if pico >= (base_comparacao * fator_pico) and pico >= 30:
+                                    return "⚠️ SIM", round(media_sem_pico, 2) # Assume a média limpa, sem o pico
+                            else:
+                                # Se todos os outros meses venderam ZERO e do nada bateu 30+
+                                if pico >= 30:
+                                    return "⚠️ SIM", 0.0
+                                    
                             return "Não", media_sis
 
                         res_atipico = df_dest.apply(processar_atipico, axis=1)
@@ -200,7 +221,6 @@ if uploaded_files:
                             necessidade = (media_usada * meta) - (row['ESTOQUE'] + row['COMPRADA'])
                             
                             if necessidade > 0:
-                                # Agora o robô procura filiais que tenham EXCEDENTE > 0
                                 outras = df_global[
                                     (df_global['CODIGO'] == cod) & 
                                     (df_global['FILIAL_NOME'] != nome_destino) & 
@@ -228,7 +248,6 @@ if uploaded_files:
                                             qtd_a_tirar = min(necessidade_restante, saldo_cedente)
                                         
                                         if qtd_a_tirar >= 30:
-                                            # Desconta tanto do excedente quanto do estoque real
                                             df_global.loc[idx_global, 'EXCEDENTE_DISPONIVEL'] -= qtd_a_tirar
                                             df_global.loc[idx_global, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
                                             necessidade_restante -= qtd_a_tirar
@@ -276,6 +295,10 @@ if uploaded_files:
                                 "TEXTIL J. SERRANO" in forn
                             ):
                                 multiplo = 50
+                                tolerancia = 20
+                            
+                            elif "AGRO QUIMICA" in forn:
+                                multiplo = 45
                                 tolerancia = 20
                                 
                             elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc):
