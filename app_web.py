@@ -8,7 +8,7 @@ from io import BytesIO
 from openpyxl.styles import PatternFill
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Portal de Inteligência - Tapeçaria", layout="wide")
+st.set_page_config(page_title="Compras Inteligente - Tapeçaria", layout="wide")
 
 # ==========================================
 # --- TELA DE SENHA (BLOQUEIO DE ACESSO) ---
@@ -91,8 +91,17 @@ with st.sidebar:
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
 
 # --- CORPO DO SITE ---
-st.title("📊 Portal de Inteligência Interativo")
-st.markdown("### Tapeçaria - Simulação e Gestão em Tempo Real")
+# NOVIDADE: Layout organizado com a logo dourada e o título limpo
+col1, col2 = st.columns([1, 15])
+with col1:
+    try: 
+        st.image("simbolo.png", width=50) # Puxa o arquivo do símbolo dourado
+    except: 
+        pass
+with col2:
+    st.title("Compras Inteligente")
+
+st.markdown("### Tapeçaria")
 
 if uploaded_files:
     if st.button("🚀 Processar Análise"):
