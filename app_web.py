@@ -123,9 +123,9 @@ if uploaded_files:
             df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
             df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
             
+            # --- NOVO CÁLCULO DE EXCEDENTE (Mais direto) ---
             def calcular_excedente(row):
                 if row['MEDIA_SISTEMA'] == 0: return row['ESTOQUE_DISPONIVEL']
-                elif row['MESES_ESTOQUE'] > meses_parado and row['TOTAL_VENDAS_RECENTES'] < 30: return row['ESTOQUE_DISPONIVEL']
                 else:
                     excesso = row['ESTOQUE_DISPONIVEL'] - (row['MEDIA_SISTEMA'] * meta)
                     return max(0, excesso) 
@@ -135,12 +135,12 @@ if uploaded_files:
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 for nome_destino, df_dest in dfs_por_filial.items():
                     
-                    # Identificar Estoque Parado individualmente
+                    # --- NOVA REGRA DO ESTOQUE PARADO / EXCESSO ---
                     def classificar_estoque_parado(row):
-                        total_ven = row['MES_1'] + row['MES_2'] + row['MES_3'] + row['MES_4']
                         if row['ESTOQUE'] > 0:
                             if row['MEDIA_SISTEMA'] == 0: return "🛑 SIM"
-                            elif row['MESES_ESTOQUE'] > meses_parado and total_ven < 30: return "🛑 SIM"
+                            # Removida a trava de vendas. Se passou do limite de meses configurado, é excesso/parado!
+                            elif row['MESES_ESTOQUE'] > meses_parado: return "🛑 SIM"
                         return ""
                         
                     df_dest['ESTOQUE PARADO'] = df_dest.apply(classificar_estoque_parado, axis=1)
@@ -204,7 +204,6 @@ if uploaded_files:
                     
                     df_dest.rename(columns={'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 'MES_3': meses_globais[2], 'MES_4': meses_globais[3], 'MEDIA_SISTEMA': 'MEDIA', 'MESES_ESTOQUE': 'MESES'}, inplace=True)
                     
-                    # Adicionada a coluna ESTOQUE PARADO no final da tabela
                     cols_f = ['CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO']
                     df_dest[cols_f].to_excel(writer, sheet_name=nome_destino[:30], index=False)
                     
@@ -213,7 +212,7 @@ if uploaded_files:
                     ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                     cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
                     cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                    c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid") # Vermelho claro para estoque morto
+                    c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
                     
                     idx_estoque = cols_f.index('ESTOQUE') + 1 
                     idx_comprada = cols_f.index('COMPRADA') + 1 
@@ -228,7 +227,6 @@ if uploaded_files:
                         if str(ws.cell(r, idx_transf).value) != "0" and ws.cell(r, idx_transf).value is not None: ws.cell(r, idx_transf).fill = ca 
                         if "⚠️ SIM" in str(ws.cell(r, idx_atipica).value): ws.cell(r, idx_atipica).fill = cy 
                         
-                        # Destaca o Estoque e o Alerta de Parado em vermelho
                         val_parado = ws.cell(r, idx_parado).value
                         if val_parado and "🛑 SIM" in str(val_parado): 
                             ws.cell(r, idx_parado).fill = c_red
@@ -242,9 +240,12 @@ if uploaded_files:
                 c1.metric("🛒 Comprar", f"{int(dash_qtd_comprar)} un.")
                 c2.metric("🔄 Economia", f"{int(dash_qtd_transferida)} un.")
                 c3.metric("⚠️ Picos", f"{int(dash_itens_pico)} itens")
-                df_p = df_global[(df_global['MEDIA_SISTEMA'] == 0) | ((df_global['MESES_ESTOQUE'] > meses_parado) & (df_global['TOTAL_VENDAS_RECENTES'] < 30))]
+                
+                # Atualizando o gráfico do Dashboard para refletir a nova regra (sem a trava de 30)
+                df_p = df_global[(df_global['ESTOQUE_DISPONIVEL'] > 0) & ((df_global['MEDIA_SISTEMA'] == 0) | (df_global['MESES_ESTOQUE'] > meses_parado))]
                 f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax() if not df_p.empty else "Nenhuma"
                 c4.metric("📦 Maior Estoque Parado", f_p)
+                
                 st.success("✅ Análise concluída! O Excel está pronto para download abaixo.")
                 st.download_button("📥 Baixar Relatório Excel", data=output.getvalue(), file_name=nome_final_xlsx, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -255,9 +256,9 @@ if uploaded_files:
                 st.dataframe(top_compra[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
 
             with tab3:
-                st.subheader("Análise de Estoque Morto por Filial")
+                st.subheader("Análise de Estoque Morto / Excedente por Filial")
                 if not df_p.empty:
-                    fig = px.bar(df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index(), x='FILIAL_NOME', y='ESTOQUE', title="Volume de Estoque Parado (un.)", color='ESTOQUE', color_continuous_scale='Reds')
+                    fig = px.bar(df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index(), x='FILIAL_NOME', y='ESTOQUE', title="Volume de Estoque Acima do Limite (un.)", color='ESTOQUE', color_continuous_scale='Reds')
                     st.plotly_chart(fig, use_container_width=True)
                 else: st.info("Não há estoque parado detectado com os parâmetros atuais.")
 
