@@ -20,7 +20,7 @@ if "liberado" not in st.session_state:
 
 if not st.session_state.liberado:
     st.title("🔒 Acesso Restrito - Tapeçaria")
-    st.info("Por favor, insira a senha de liberação para acessar o portal de análise.")
+    st.info("Por favor, insira a senha de liberação para aceder ao portal de análise.")
     senha = st.text_input("Senha", type="password")
     if st.button("Entrar"):
         if senha == SENHA_ACESSO:
@@ -85,7 +85,7 @@ with st.sidebar:
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
     fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
-    nome_sugerido = st.text_input("Nome do arquivo Excel", value="Relatorio_Compras_Tapecaria")
+    nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
     nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
     st.markdown("---")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
@@ -123,7 +123,7 @@ if uploaded_files:
             df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
             df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
             
-            # --- NOVO CÁLCULO DE EXCEDENTE (Mais direto) ---
+            # --- CÁLCULO DE EXCEDENTE ---
             def calcular_excedente(row):
                 if row['MEDIA_SISTEMA'] == 0: return row['ESTOQUE_DISPONIVEL']
                 else:
@@ -135,11 +135,10 @@ if uploaded_files:
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 for nome_destino, df_dest in dfs_por_filial.items():
                     
-                    # --- NOVA REGRA DO ESTOQUE PARADO / EXCESSO ---
+                    # --- REGRA DO ESTOQUE PARADO / EXCESSO ---
                     def classificar_estoque_parado(row):
                         if row['ESTOQUE'] > 0:
                             if row['MEDIA_SISTEMA'] == 0: return "🛑 SIM"
-                            # Removida a trava de vendas. Se passou do limite de meses configurado, é excesso/parado!
                             elif row['MESES_ESTOQUE'] > meses_parado: return "🛑 SIM"
                         return ""
                         
@@ -187,13 +186,23 @@ if uploaded_files:
                     df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
                     sug_base = [x[1] for x in res_log]
 
+                    # --- MÚLTIPLOS POR FORNECEDOR ---
                     def aplicar_mult(row, sug):
                         if sug <= 0: return 0
                         forn = str(row.get('FORNECEDOR', '')).upper(); desc = str(row.get('DESCRICAO', '')).upper()
-                        if any(x in forn for x in ["CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", "ETRURIA", "TELLAIO", "OBER", "TEXTIL J. SERRANO"]): mult = 50; tol = 20
-                        elif "AGRO QUIMICA" in forn: mult = 45; tol = 20
-                        elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc): mult = 30; tol = 15
-                        else: return sug
+                        
+                        if any(x in forn for x in ["CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", "ETRURIA", "TELLAIO", "OBER", "TEXTIL J. SERRANO"]): 
+                            mult = 50; tol = 20
+                        elif "AGRO QUIMICA" in forn: 
+                            mult = 45; tol = 20
+                        elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc): 
+                            mult = 30; tol = 15
+                        # NOVIDADE: Adicionado o fornecedor ROMA DUBLADOS (múltiplo de 10)
+                        elif "ROMA DUBLADOS" in forn:
+                            mult = 10; tol = 5
+                        else: 
+                            return sug
+                            
                         base = (int(sug) // mult) * mult; rest = sug % mult
                         return base + mult if rest >= tol else base
 
@@ -241,7 +250,6 @@ if uploaded_files:
                 c2.metric("🔄 Economia", f"{int(dash_qtd_transferida)} un.")
                 c3.metric("⚠️ Picos", f"{int(dash_itens_pico)} itens")
                 
-                # Atualizando o gráfico do Dashboard para refletir a nova regra (sem a trava de 30)
                 df_p = df_global[(df_global['ESTOQUE_DISPONIVEL'] > 0) & ((df_global['MEDIA_SISTEMA'] == 0) | (df_global['MESES_ESTOQUE'] > meses_parado))]
                 f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax() if not df_p.empty else "Nenhuma"
                 c4.metric("📦 Maior Estoque Parado", f_p)
@@ -260,10 +268,10 @@ if uploaded_files:
                 if not df_p.empty:
                     fig = px.bar(df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index(), x='FILIAL_NOME', y='ESTOQUE', title="Volume de Estoque Acima do Limite (un.)", color='ESTOQUE', color_continuous_scale='Reds')
                     st.plotly_chart(fig, use_container_width=True)
-                else: st.info("Não há estoque parado detectado com os parâmetros atuais.")
+                else: st.info("Não há estoque parado detetado com os parâmetros atuais.")
 
             with tab4:
                 sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
                 st.dataframe(dfs_por_filial[sel_f], use_container_width=True)
 
-    else: st.info("Aguardando upload e clique em 'Processar' para gerar a inteligência.")
+    else: st.info("A aguardar upload. Clique em 'Processar' para gerar a inteligência.")
