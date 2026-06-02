@@ -135,10 +135,8 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # 1. MOVIDO PARA CIMA: A caixa de upload agora fica logo abaixo das configurações básicas
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
     
-    # 2. MOVIDO PARA BAIXO E COM "FLECHA": Expander esconde a tabela até ser clicada
     with st.expander("🏭 Fornecedores e Múltiplos"):
         st.caption("Adicione ou edite regras. Use a última linha vazia para adicionar novos.")
         
@@ -160,7 +158,7 @@ with col1:
 with col2:
     st.title("Compras Inteligente")
 
-st.markdown("### Tapeçaria")
+st.markdown("### Gestão de Compras e Transferências")
 
 if uploaded_files:
     if st.button("🚀 Processar Análise"):
@@ -324,9 +322,10 @@ if uploaded_files:
                                 if mult > 0:
                                     base = (int(sug) // mult) * mult
                                     rest = sug % mult
-                                    return base + mult if rest >= tol else base
+                                    return int(base + mult if rest >= tol else base)
                                     
-                        return sug
+                        # Aqui está a correção: arredonda para cima para garantir stock inteiro
+                        return int(math.ceil(sug))
 
                     df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
                     df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
