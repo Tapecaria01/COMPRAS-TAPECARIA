@@ -47,12 +47,14 @@ def extrair_dados_pdf_web(pdf_file):
     nome_filial = pdf_file.name.replace(".pdf", "").upper()
     meses_encontrados = []
     fornecedor_atual = "DESCONHECIDO"
+    
     try:
         with pdfplumber.open(pdf_file) as pdf:
             for pagina in pdf.pages:
                 texto = pagina.extract_text()
                 if not texto: 
                     continue
+                    
                 if len(meses_encontrados) < 4:
                     padrao_mes = r'\b(?:jan|fev|feb|mar|abr|apr|mai|may|jun|jul|ago|aug|set|sep|out|oct|nov|dez|dec)/\d{2,4}\b'
                     encontrados = re.findall(padrao_mes, texto.lower())
@@ -60,6 +62,7 @@ def extrair_dados_pdf_web(pdf_file):
                         m_upper = m.upper()
                         if m_upper not in meses_encontrados: 
                             meses_encontrados.append(m_upper)
+                            
                 for l in texto.split('\n'):
                     if "SEGMENTO" in l.upper():
                         match = re.search(r'SEGMENTO\s*:\s*(.*)', l, re.IGNORECASE)
@@ -68,7 +71,8 @@ def extrair_dados_pdf_web(pdf_file):
                     elif re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
-                            dados.append({
+                            # Linhas curtas para evitar quebra no GitHub
+                            item_dict = {
                                 'CODIGO': partes[0], 
                                 'DESCRICAO': " ".join(partes[1:-11]), 
                                 'EMB.': partes[-11],
@@ -83,9 +87,11 @@ def extrair_dados_pdf_web(pdf_file):
                                 'MESES_ESTOQUE': limpar_v(partes[-1]), 
                                 'FILIAL_NOME': nome_filial, 
                                 'FORNECEDOR': fornecedor_atual
-                            })
+                            }
+                            dados.append(item_dict)
                         except: 
                             continue
+                            
         return pd.DataFrame(dados), meses_encontrados
     except: 
         return pd.DataFrame(), []
@@ -95,14 +101,20 @@ with st.sidebar:
     try: 
         st.image("logo.png", use_container_width=True)
     except: 
-        st.error("Arquivo 'logo.png' não encontrado no GitHub.")
+        st.error("Arquivo 'logo.png' não encontrado.")
+        
     st.markdown("---")
     st.header("⚙️ Configurações")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
     fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
     nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
-    nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
+    
+    if nome_sugerido.endswith(".xlsx"):
+        nome_final_xlsx = nome_sugerido
+    else:
+        nome_final_xlsx = f"{nome_sugerido}.xlsx"
+        
     st.markdown("---")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
 
@@ -141,7 +153,10 @@ if uploaded_files:
         if todos_dados:
             df_global = pd.concat(todos_dados).reset_index(drop=True)
             df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
-            df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
+            
+            # Soma passo a passo para evitar erros de linha
+            vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
+            df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
             
             def calcular_excedente(row):
                 if row['MEDIA_SISTEMA'] == 0: 
@@ -167,4 +182,273 @@ if uploaded_files:
                     df_dest['ESTOQUE PARADO'] = df_dest.apply(classificar_estoque_parado, axis=1)
                     
                     def processar_atipico(row):
-                        meses_v = [row['MES_1'], row['MES_2'],
+                        # Lista quebrada com segurança
+                        meses_v = [
+                            row['MES_1'], 
+                            row['MES_2'], 
+                            row['MES_3'], 
+                            row['MES_4']
+                        ]
+                        pico = max(meses_v)
+                        outros = meses_v.copy()
+                        outros.remove(pico)
+                        
+                        soma_outros = sum(outros)
+                        media_sem = soma_outros / 3 if soma_outros > 0 else 0
+                        
+                        media_sis = row['MEDIA_SISTEMA']
+                        if media_sis > 0 and media_sem > 0:
+                            base_comp = min(media_sis, media_sem)
+                        elif media_sem > 0:
+                            base_comp = media_sem
+                        else:
+                            base_comp = media_sis
+                            
+                        if base_comp > 0 and pico >= (base_comp * fator_pico) and pico >= 30: 
+                            return "⚠️ SIM", round(media_sem, 2)
+                        elif base_comp == 0 and pico >= 30: 
+                            return "⚠️ SIM", 0.0
+                            
+                        return "Não", media_sis
+
+                    res_at = df_dest.apply(processar_atipico, axis=1)
+                    df_dest['VENDA_ATIPICA'] = [x[0] for x in res_at]
+                    df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_at]
+                    dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
+                    
+                    def calcular_log(row):
+                        cod = row['CODIGO']
+                        nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
+                        necessidade = nec_calc
+                        
+                        if necessidade > 0:
+                            filtro1 = df_global['CODIGO'] == cod
+                            filtro2 = df_global['FILIAL_NOME'] != nome_destino
+                            filtro3 = df_global['EXCEDENTE_DISPONIVEL'] > 0
+                            outras = df_global[filtro1 & filtro2 & filtro3]
+                            
+                            if not outras.empty:
+                                outras_ord = outras.sort_values(
+                                    by=['MEDIA_SISTEMA', 'EXCEDENTE_DISPONIVEL'], 
+                                    ascending=[True, False]
+                                )
+                                trans_item = []
+                                nec_rest = necessidade
+                                
+                                for idx_g, cedente in outras_ord.iterrows():
+                                    if nec_rest <= 0: 
+                                        break
+                                        
+                                    sal_ced = df_global.loc[idx_g, 'EXCEDENTE_DISPONIVEL']
+                                    if sal_ced <= 0: 
+                                        continue
+                                        
+                                    if nec_rest < 30 and sal_ced >= 30:
+                                        qtd_a_tirar = 30
+                                    else:
+                                        qtd_a_tirar = min(nec_rest, sal_ced)
+                                        
+                                    if qtd_a_tirar >= 30:
+                                        df_global.loc[idx_g, 'EXCEDENTE_DISPONIVEL'] -= qtd_a_tirar
+                                        df_global.loc[idx_g, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
+                                        nec_rest -= qtd_a_tirar
+                                        
+                                        nome_ced = str(cedente['FILIAL_NOME'])
+                                        if 'RIBEIR' in nome_ced:
+                                            apelido = 'RP'
+                                        elif 'LONDRINA' in nome_ced:
+                                            apelido = 'Lon'
+                                        elif 'FRANCA' in nome_ced:
+                                            apelido = 'Frc'
+                                        else:
+                                            apelido = nome_ced
+                                            
+                                        trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
+                                        
+                                if trans_item: 
+                                    return " | ".join(trans_item), round(max(0, nec_rest), 2)
+                                    
+                        return "0", round(max(0, necessidade), 2)
+
+                    res_log = df_dest.apply(calcular_log, axis=1)
+                    df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
+                    sug_base = [x[1] for x in res_log]
+
+                    def aplicar_mult(row, sug):
+                        if sug <= 0: 
+                            return 0
+                        forn = str(row.get('FORNECEDOR', '')).upper()
+                        desc = str(row.get('DESCRICAO', '')).upper()
+                        
+                        # Lista segura
+                        fornecedores_50 = [
+                            "CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", 
+                            "ETRURIA", "TELLAIO", "TELLAIO TEXTIL", "OBER", 
+                            "TEXTIL J. SERRANO", "CKS"
+                        ]
+                        
+                        if any(x in forn for x in fornecedores_50): 
+                            mult = 50
+                            tol = 20
+                        elif "AGRO QUIMICA" in forn: 
+                            mult = 45
+                            tol = 20
+                        elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc): 
+                            mult = 30
+                            tol = 15
+                        elif "ROMA DUBLADOS" in forn:
+                            mult = 10
+                            tol = 5
+                        else: 
+                            return sug
+                            
+                        base = (int(sug) // mult) * mult
+                        rest = sug % mult
+                        return base + mult if rest >= tol else base
+
+                    df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
+                    df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
+                    dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
+                    
+                    def extrair_n(t): 
+                        if str(t) == "0":
+                            return 0
+                        numeros = re.findall(r'\d+', str(t))
+                        return sum([int(n) for n in numeros])
+                        
+                    dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_n).sum()
+                    
+                    renames = {
+                        'MES_1': meses_globais[0], 
+                        'MES_2': meses_globais[1], 
+                        'MES_3': meses_globais[2], 
+                        'MES_4': meses_globais[3], 
+                        'MEDIA_SISTEMA': 'MEDIA', 
+                        'MESES_ESTOQUE': 'MESES'
+                    }
+                    df_dest.rename(columns=renames, inplace=True)
+                    
+                    # Lista de colunas segura contra quebras
+                    cols_f = [
+                        'CODIGO', 
+                        'DESCRICAO', 
+                        'EMB.', 
+                        meses_globais[0], 
+                        meses_globais[1], 
+                        meses_globais[2], 
+                        meses_globais[3], 
+                        'MEDIA', 
+                        'ESTOQUE', 
+                        'RESERVA', 
+                        'COMPRADA', 
+                        'MESES', 
+                        'SUGESTAO COMPRA', 
+                        'TRANS INTERNA', 
+                        'VENDA_ATIPICA', 
+                        'ESTOQUE PARADO'
+                    ]
+                    
+                    sheet_n = nome_destino[:30]
+                    df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
+                    
+                    ws = writer.sheets[sheet_n]
+                    cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+                    ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
+                    cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
+                    cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                    c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+                    
+                    idx_estoque = cols_f.index('ESTOQUE') + 1 
+                    idx_comprada = cols_f.index('COMPRADA') + 1 
+                    idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
+                    idx_transf = cols_f.index('TRANS INTERNA') + 1
+                    idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
+                    idx_parado = cols_f.index('ESTOQUE PARADO') + 1
+                    
+                    for r in range(2, len(ws['A']) + 1):
+                        val_comprada = limpar_v(ws.cell(r, idx_comprada).value)
+                        if val_comprada > 0:
+                            ws.cell(r, idx_comprada).fill = cl 
+                            
+                        val_compra = limpar_v(ws.cell(r, idx_compra).value)
+                        if val_compra > 0:
+                            ws.cell(r, idx_compra).fill = cv 
+                            
+                        val_transf = str(ws.cell(r, idx_transf).value)
+                        if val_transf != "0" and val_transf != "None":
+                            ws.cell(r, idx_transf).fill = ca 
+                            
+                        val_atipica = str(ws.cell(r, idx_atipica).value)
+                        if "⚠️ SIM" in val_atipica:
+                            ws.cell(r, idx_atipica).fill = cy 
+                        
+                        val_parado = ws.cell(r, idx_parado).value
+                        if val_parado and "🛑 SIM" in str(val_parado): 
+                            ws.cell(r, idx_parado).fill = c_red
+                            ws.cell(r, idx_estoque).fill = c_red
+
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📊 Visão Geral", 
+                "🚨 Top Urgentes", 
+                "📦 Estoque Parado", 
+                "🔍 Prévia por Filial"
+            ])
+            
+            with tab1:
+                st.subheader("Indicadores de Desempenho")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("🛒 Comprar", f"{int(dash_qtd_comprar)} un.")
+                c2.metric("🔄 Economia", f"{int(dash_qtd_transferida)} un.")
+                c3.metric("⚠️ Picos", f"{int(dash_itens_pico)} itens")
+                
+                filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
+                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
+                filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
+                df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
+                
+                if not df_p.empty:
+                    f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax()
+                else:
+                    f_p = "Nenhuma"
+                    
+                c4.metric("📦 Maior Estoque Parado", f_p)
+                
+                st.success("✅ Análise concluída! O Excel está pronto para download abaixo.")
+                st.download_button(
+                    label="📥 Baixar Relatório Excel", 
+                    data=output.getvalue(), 
+                    file_name=nome_final_xlsx, 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+            with tab2:
+                st.subheader("Produtos com maior sugestão de compra")
+                df_all = pd.concat(dfs_por_filial.values())
+                top_compra = df_all[df_all['SUGESTAO COMPRA'] > 0].sort_values(
+                    by='SUGESTAO COMPRA', ascending=False
+                ).head(15)
+                cols_view = ['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'SUGESTAO COMPRA', 'FORNECEDOR']
+                st.dataframe(top_compra[cols_view], use_container_width=True)
+
+            with tab3:
+                st.subheader("Análise de Estoque Morto / Excedente por Filial")
+                if not df_p.empty:
+                    grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index()
+                    fig = px.bar(
+                        grafico_dados, 
+                        x='FILIAL_NOME', 
+                        y='ESTOQUE', 
+                        title="Volume de Estoque Acima do Limite (un.)", 
+                        color='ESTOQUE', 
+                        color_continuous_scale='Reds'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else: 
+                    st.info("Não há estoque parado detetado com os parâmetros atuais.")
+
+            with tab4:
+                sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
+                st.dataframe(dfs_por_filial[sel_f], use_container_width=True)
+
+    else: 
+        st.info("A aguardar upload. Clique em 'Processar' para gerar a inteligência.")
