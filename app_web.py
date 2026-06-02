@@ -134,21 +134,21 @@ with st.sidebar:
         nome_final_xlsx = f"{nome_sugerido}.xlsx"
         
     st.markdown("---")
-    st.header("🏭 Tabela de Múltiplos")
-    st.caption("Adicione ou edite regras. Use a última linha vazia para adicionar novos.")
     
-    # A MÁGICA ACONTECE AQUI: Uma tabela interativa na barra lateral!
-    df_regras_editado = st.data_editor(
-        st.session_state.df_regras, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        hide_index=True
-    )
-    # Guarda as alterações feitas pelo utilizador
-    st.session_state.df_regras = df_regras_editado
-        
-    st.markdown("---")
+    # 1. MOVIDO PARA CIMA: A caixa de upload agora fica logo abaixo das configurações básicas
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
+    
+    # 2. MOVIDO PARA BAIXO E COM "FLECHA": Expander esconde a tabela até ser clicada
+    with st.expander("🏭 Fornecedores e Múltiplos"):
+        st.caption("Adicione ou edite regras. Use a última linha vazia para adicionar novos.")
+        
+        df_regras_editado = st.data_editor(
+            st.session_state.df_regras, 
+            num_rows="dynamic", 
+            use_container_width=True,
+            hide_index=True
+        )
+        st.session_state.df_regras = df_regras_editado
 
 # --- CORPO DO SITE ---
 col1, col2 = st.columns([1, 15])
@@ -299,7 +299,6 @@ if uploaded_files:
                     df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
                     sug_base = [x[1] for x in res_log]
 
-                    # --- NOVA LÓGICA DE MÚLTIPLOS (Lê direto da tabela interativa) ---
                     def aplicar_mult(row, sug):
                         if sug <= 0: 
                             return 0
@@ -307,29 +306,27 @@ if uploaded_files:
                         forn = str(row.get('FORNECEDOR', '')).upper()
                         desc = str(row.get('DESCRICAO', '')).upper()
                         
-                        # Percorre a tabela editada pelo utilizador
                         for idx, regra in df_regras_editado.iterrows():
                             f_regra = str(regra.get('FORNECEDOR', '')).upper()
                             
                             if f_regra and f_regra != "NAN" and f_regra in forn:
-                                # Verifica se exige palavra-chave na descrição
                                 p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
                                 if p_chave and p_chave != "NAN" and p_chave != "NONE":
                                     if p_chave not in desc:
-                                        continue # Salta esta regra se não tiver a palavra
+                                        continue 
                                         
                                 try:
                                     mult = int(regra['MULTIPLO'])
                                     tol = int(regra['TOLERANCIA'])
                                 except:
-                                    continue # Se alguém apagar o número na tabela, ignora o erro
+                                    continue 
                                     
                                 if mult > 0:
                                     base = (int(sug) // mult) * mult
                                     rest = sug % mult
                                     return base + mult if rest >= tol else base
                                     
-                        return sug # Se não encontrar na tabela, retorna normal
+                        return sug
 
                     df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
                     df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
