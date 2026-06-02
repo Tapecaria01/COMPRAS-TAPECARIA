@@ -191,7 +191,6 @@ if uploaded_files:
                         if sug <= 0: return 0
                         forn = str(row.get('FORNECEDOR', '')).upper(); desc = str(row.get('DESCRICAO', '')).upper()
                         
-                        # NOVIDADE: Adicionado "CKS" aos múltiplos de 50
                         if any(x in forn for x in ["CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", "ETRURIA", "TELLAIO", "TELLAIO TEXTIL", "OBER", "TEXTIL J. SERRANO", "CKS"]): 
                             mult = 50; tol = 20
                         elif "AGRO QUIMICA" in forn: 
@@ -214,4 +213,20 @@ if uploaded_files:
                     df_dest.rename(columns={'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 'MES_3': meses_globais[2], 'MES_4': meses_globais[3], 'MEDIA_SISTEMA': 'MEDIA', 'MESES_ESTOQUE': 'MESES'}, inplace=True)
                     
                     cols_f = ['CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO']
-                    df_dest[cols_f].to_excel(writer, sheet_name=
+                    df_dest[cols_f].to_excel(writer, sheet_name=nome_destino[:30], index=False)
+                    
+                    ws = writer.sheets[nome_destino[:30]]
+                    cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+                    ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
+                    cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
+                    cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                    c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+                    
+                    idx_estoque = cols_f.index('ESTOQUE') + 1 
+                    idx_comprada = cols_f.index('COMPRADA') + 1 
+                    idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
+                    idx_transf = cols_f.index('TRANS INTERNA') + 1
+                    idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
+                    idx_parado = cols_f.index('ESTOQUE PARADO') + 1
+                    
+                    for r in range(2, len(ws['A'])+1):
