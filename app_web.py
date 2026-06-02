@@ -33,9 +33,9 @@ if not st.session_state.liberado:
 # ==========================================
 # --- FUNÇÕES DE APOIO ---
 # ==========================================
-
 def limpar_v(valor):
-    if not valor: return 0.0
+    if not valor: 
+        return 0.0
     s = str(valor).strip().replace('.', '').replace(',', '.')
     try:
         return float(re.sub(r'[^\d.]', '', s))
@@ -51,7 +51,8 @@ def extrair_dados_pdf_web(pdf_file):
         with pdfplumber.open(pdf_file) as pdf:
             for pagina in pdf.pages:
                 texto = pagina.extract_text()
-                if not texto: continue
+                if not texto: 
+                    continue
                 if len(meses_encontrados) < 4:
                     padrao_mes = r'\b(?:jan|fev|feb|mar|abr|apr|mai|may|jun|jul|ago|aug|set|sep|out|oct|nov|dez|dec)/\d{2,4}\b'
                     encontrados = re.findall(padrao_mes, texto.lower())
@@ -127,3 +128,43 @@ if uploaded_files:
         dash_itens_pico = 0
         
         for f in uploaded_files:
+            df, meses = extrair_dados_pdf_web(f)
+            if not df.empty:
+                dfs_por_filial[f.name.replace(".pdf", "").upper()] = df
+                todos_dados.append(df)
+                if len(meses) >= 4 and not meses_globais: 
+                    meses_globais = meses[:4]
+        
+        if not meses_globais: 
+            meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
+        
+        if todos_dados:
+            df_global = pd.concat(todos_dados).reset_index(drop=True)
+            df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
+            df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
+            
+            def calcular_excedente(row):
+                if row['MEDIA_SISTEMA'] == 0: 
+                    return row['ESTOQUE_DISPONIVEL']
+                else:
+                    excesso = row['ESTOQUE_DISPONIVEL'] - (row['MEDIA_SISTEMA'] * meta)
+                    return max(0, excesso) 
+            
+            df_global['EXCEDENTE_DISPONIVEL'] = df_global.apply(calcular_excedente, axis=1)
+
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                for nome_destino, df_dest in dfs_por_filial.items():
+                    
+                    def classificar_estoque_parado(row):
+                        if row['ESTOQUE'] > 0:
+                            if row['MEDIA_SISTEMA'] == 0: 
+                                return "🛑 SIM"
+                            elif row['MESES_ESTOQUE'] > meses_parado: 
+                                return "🛑 SIM"
+                        return ""
+                        
+                    df_dest['ESTOQUE PARADO'] = df_dest.apply(classificar_estoque_parado, axis=1)
+                    
+                    def processar_atipico(row):
+                        meses_v = [row['MES_1'], row['MES_2'],
