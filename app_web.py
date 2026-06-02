@@ -31,6 +31,25 @@ if not st.session_state.liberado:
     st.stop()
 
 # ==========================================
+# --- DADOS PADRÃO DE FORNECEDORES ---
+# ==========================================
+if "df_regras" not in st.session_state:
+    st.session_state.df_regras = pd.DataFrame([
+        {"FORNECEDOR": "CORTTEX", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "TEX COMPANY", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "CIPATEX", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "KARSTEN", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "ETRURIA", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "TELLAIO", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "OBER", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "TEXTIL J. SERRANO", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "CKS", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "AGRO QUIMICA", "MULTIPLO": 45, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
+        {"FORNECEDOR": "ROMPLAS", "MULTIPLO": 30, "TOLERANCIA": 15, "PALAVRA_CHAVE": "URUGUA"},
+        {"FORNECEDOR": "ROMA DUBLADOS", "MULTIPLO": 10, "TOLERANCIA": 5, "PALAVRA_CHAVE": ""}
+    ])
+
+# ==========================================
 # --- FUNÇÕES DE APOIO ---
 # ==========================================
 def limpar_v(valor):
@@ -71,7 +90,6 @@ def extrair_dados_pdf_web(pdf_file):
                     elif re.match(r'^\d{3,6}\s', l):
                         partes = l.split()
                         try:
-                            # Linhas curtas para evitar quebra no GitHub
                             item_dict = {
                                 'CODIGO': partes[0], 
                                 'DESCRICAO': " ".join(partes[1:-11]), 
@@ -101,10 +119,10 @@ with st.sidebar:
     try: 
         st.image("logo.png", use_container_width=True)
     except: 
-        st.error("Arquivo 'logo.png' não encontrado.")
+        pass
         
     st.markdown("---")
-    st.header("⚙️ Configurações")
+    st.header("⚙️ Configurações Gerais")
     meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
     meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
     fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
@@ -114,6 +132,20 @@ with st.sidebar:
         nome_final_xlsx = nome_sugerido
     else:
         nome_final_xlsx = f"{nome_sugerido}.xlsx"
+        
+    st.markdown("---")
+    st.header("🏭 Tabela de Múltiplos")
+    st.caption("Adicione ou edite regras. Use a última linha vazia para adicionar novos.")
+    
+    # A MÁGICA ACONTECE AQUI: Uma tabela interativa na barra lateral!
+    df_regras_editado = st.data_editor(
+        st.session_state.df_regras, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        hide_index=True
+    )
+    # Guarda as alterações feitas pelo utilizador
+    st.session_state.df_regras = df_regras_editado
         
     st.markdown("---")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
@@ -154,7 +186,6 @@ if uploaded_files:
             df_global = pd.concat(todos_dados).reset_index(drop=True)
             df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
             
-            # Soma passo a passo para evitar erros de linha
             vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
             df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
             
@@ -182,13 +213,7 @@ if uploaded_files:
                     df_dest['ESTOQUE PARADO'] = df_dest.apply(classificar_estoque_parado, axis=1)
                     
                     def processar_atipico(row):
-                        # Lista quebrada com segurança
-                        meses_v = [
-                            row['MES_1'], 
-                            row['MES_2'], 
-                            row['MES_3'], 
-                            row['MES_4']
-                        ]
+                        meses_v = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
                         pico = max(meses_v)
                         outros = meses_v.copy()
                         outros.remove(pico)
@@ -274,37 +299,37 @@ if uploaded_files:
                     df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
                     sug_base = [x[1] for x in res_log]
 
+                    # --- NOVA LÓGICA DE MÚLTIPLOS (Lê direto da tabela interativa) ---
                     def aplicar_mult(row, sug):
                         if sug <= 0: 
                             return 0
+                            
                         forn = str(row.get('FORNECEDOR', '')).upper()
                         desc = str(row.get('DESCRICAO', '')).upper()
                         
-                        # Lista segura
-                        fornecedores_50 = [
-                            "CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", 
-                            "ETRURIA", "TELLAIO", "TELLAIO TEXTIL", "OBER", 
-                            "TEXTIL J. SERRANO", "CKS"
-                        ]
-                        
-                        if any(x in forn for x in fornecedores_50): 
-                            mult = 50
-                            tol = 20
-                        elif "AGRO QUIMICA" in forn: 
-                            mult = 45
-                            tol = 20
-                        elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc): 
-                            mult = 30
-                            tol = 15
-                        elif "ROMA DUBLADOS" in forn:
-                            mult = 10
-                            tol = 5
-                        else: 
-                            return sug
+                        # Percorre a tabela editada pelo utilizador
+                        for idx, regra in df_regras_editado.iterrows():
+                            f_regra = str(regra.get('FORNECEDOR', '')).upper()
                             
-                        base = (int(sug) // mult) * mult
-                        rest = sug % mult
-                        return base + mult if rest >= tol else base
+                            if f_regra and f_regra != "NAN" and f_regra in forn:
+                                # Verifica se exige palavra-chave na descrição
+                                p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
+                                if p_chave and p_chave != "NAN" and p_chave != "NONE":
+                                    if p_chave not in desc:
+                                        continue # Salta esta regra se não tiver a palavra
+                                        
+                                try:
+                                    mult = int(regra['MULTIPLO'])
+                                    tol = int(regra['TOLERANCIA'])
+                                except:
+                                    continue # Se alguém apagar o número na tabela, ignora o erro
+                                    
+                                if mult > 0:
+                                    base = (int(sug) // mult) * mult
+                                    rest = sug % mult
+                                    return base + mult if rest >= tol else base
+                                    
+                        return sug # Se não encontrar na tabela, retorna normal
 
                     df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
                     df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
@@ -328,7 +353,6 @@ if uploaded_files:
                     }
                     df_dest.rename(columns=renames, inplace=True)
                     
-                    # Lista de colunas segura contra quebras
                     cols_f = [
                         'CODIGO', 
                         'DESCRICAO', 
