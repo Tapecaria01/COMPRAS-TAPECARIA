@@ -191,13 +191,13 @@ if uploaded_files:
                         if sug <= 0: return 0
                         forn = str(row.get('FORNECEDOR', '')).upper(); desc = str(row.get('DESCRICAO', '')).upper()
                         
-                        if any(x in forn for x in ["CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", "ETRURIA", "TELLAIO", "OBER", "TEXTIL J. SERRANO"]): 
+                        # NOVIDADE: Adicionado "CKS" aos múltiplos de 50
+                        if any(x in forn for x in ["CORTTEX", "TEX COMPANY", "CIPATEX", "KARSTEN", "ETRURIA", "TELLAIO", "TELLAIO TEXTIL", "OBER", "TEXTIL J. SERRANO", "CKS"]): 
                             mult = 50; tol = 20
                         elif "AGRO QUIMICA" in forn: 
                             mult = 45; tol = 20
                         elif "ROMPLAS" in forn and ("URUGUAI" in desc or "URUGUAY" in desc): 
                             mult = 30; tol = 15
-                        # NOVIDADE: Adicionado o fornecedor ROMA DUBLADOS (múltiplo de 10)
                         elif "ROMA DUBLADOS" in forn:
                             mult = 10; tol = 5
                         else: 
@@ -214,64 +214,4 @@ if uploaded_files:
                     df_dest.rename(columns={'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 'MES_3': meses_globais[2], 'MES_4': meses_globais[3], 'MEDIA_SISTEMA': 'MEDIA', 'MESES_ESTOQUE': 'MESES'}, inplace=True)
                     
                     cols_f = ['CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO']
-                    df_dest[cols_f].to_excel(writer, sheet_name=nome_destino[:30], index=False)
-                    
-                    ws = writer.sheets[nome_destino[:30]]
-                    cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
-                    ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
-                    cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
-                    cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                    c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
-                    
-                    idx_estoque = cols_f.index('ESTOQUE') + 1 
-                    idx_comprada = cols_f.index('COMPRADA') + 1 
-                    idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
-                    idx_transf = cols_f.index('TRANS INTERNA') + 1
-                    idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
-                    idx_parado = cols_f.index('ESTOQUE PARADO') + 1
-                    
-                    for r in range(2, len(ws['A'])+1):
-                        if limpar_v(ws.cell(r, idx_comprada).value) > 0: ws.cell(r, idx_comprada).fill = cl 
-                        if limpar_v(ws.cell(r, idx_compra).value) > 0: ws.cell(r, idx_compra).fill = cv 
-                        if str(ws.cell(r, idx_transf).value) != "0" and ws.cell(r, idx_transf).value is not None: ws.cell(r, idx_transf).fill = ca 
-                        if "⚠️ SIM" in str(ws.cell(r, idx_atipica).value): ws.cell(r, idx_atipica).fill = cy 
-                        
-                        val_parado = ws.cell(r, idx_parado).value
-                        if val_parado and "🛑 SIM" in str(val_parado): 
-                            ws.cell(r, idx_parado).fill = c_red
-                            ws.cell(r, idx_estoque).fill = c_red
-
-            tab1, tab2, tab3, tab4 = st.tabs(["📊 Visão Geral", "🚨 Top Urgentes", "📦 Estoque Parado", "🔍 Prévia por Filial"])
-            
-            with tab1:
-                st.subheader("Indicadores de Desempenho")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("🛒 Comprar", f"{int(dash_qtd_comprar)} un.")
-                c2.metric("🔄 Economia", f"{int(dash_qtd_transferida)} un.")
-                c3.metric("⚠️ Picos", f"{int(dash_itens_pico)} itens")
-                
-                df_p = df_global[(df_global['ESTOQUE_DISPONIVEL'] > 0) & ((df_global['MEDIA_SISTEMA'] == 0) | (df_global['MESES_ESTOQUE'] > meses_parado))]
-                f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax() if not df_p.empty else "Nenhuma"
-                c4.metric("📦 Maior Estoque Parado", f_p)
-                
-                st.success("✅ Análise concluída! O Excel está pronto para download abaixo.")
-                st.download_button("📥 Baixar Relatório Excel", data=output.getvalue(), file_name=nome_final_xlsx, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-            with tab2:
-                st.subheader("Produtos com maior sugestão de compra")
-                df_all = pd.concat(dfs_por_filial.values())
-                top_compra = df_all[df_all['SUGESTAO COMPRA'] > 0].sort_values(by='SUGESTAO COMPRA', ascending=False).head(15)
-                st.dataframe(top_compra[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
-
-            with tab3:
-                st.subheader("Análise de Estoque Morto / Excedente por Filial")
-                if not df_p.empty:
-                    fig = px.bar(df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index(), x='FILIAL_NOME', y='ESTOQUE', title="Volume de Estoque Acima do Limite (un.)", color='ESTOQUE', color_continuous_scale='Reds')
-                    st.plotly_chart(fig, use_container_width=True)
-                else: st.info("Não há estoque parado detetado com os parâmetros atuais.")
-
-            with tab4:
-                sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
-                st.dataframe(dfs_por_filial[sel_f], use_container_width=True)
-
-    else: st.info("A aguardar upload. Clique em 'Processar' para gerar a inteligência.")
+                    df_dest[cols_f].to_excel(writer, sheet_name=
