@@ -15,10 +15,6 @@ st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 # ==========================================
 st.markdown("""
     <style>
-    /* Fundo levemente cinzento para destacar os blocos brancos */
-    .stApp {
-        background-color: #F8F9FA;
-    }
     /* Estilizar o botão principal para um Azul Corporativo Premium */
     div.stButton > button:first-child {
         background-color: #004A8F;
@@ -46,19 +42,22 @@ if "liberado" not in st.session_state:
     st.session_state.liberado = False
 
 if not st.session_state.liberado:
-    # Cria 3 colunas e usa a do meio para centralizar o login
+    # Cria 3 colunas e usa a do meio para centralizar o bloco de login
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.markdown("<br><br><br><br>", unsafe_allow_html=True) # Espaçamento
         
-        # Tenta carregar a logo se existir, se não, mostra um ícone
-        try: 
-            st.image("logo.png", width=200)
-        except: 
-            st.markdown("<h1 style='text-align: center;'>🏢</h1>", unsafe_allow_html=True)
+        # Criação de sub-colunas para garantir que a logo fica milimetricamente no centro
+        sc1, sc2, sc3 = st.columns([1, 1.5, 1])
+        with sc2:
+            try: 
+                st.image("logo.png", use_container_width=True)
+            except: 
+                st.markdown("<h1 style='text-align: center; color: white;'>🏢</h1>", unsafe_allow_html=True)
             
-        st.markdown("<h2 style='text-align: center; color: #333;'>Acesso Restrito</h2>", unsafe_allow_html=True)
-        st.info("Insira a senha de sistema para aceder à inteligência de compras.")
+        # Textos em Branco e Azul
+        st.markdown("<h2 style='text-align: center; color: #FFFFFF;'>Acesso Restrito</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #4DA8DA;'>Insira a senha de sistema para aceder à inteligência de compras.</p>", unsafe_allow_html=True)
         
         senha = st.text_input("Senha", type="password")
         if st.button("Entrar no Portal", use_container_width=True):
