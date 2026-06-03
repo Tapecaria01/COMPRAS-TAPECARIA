@@ -8,10 +8,37 @@ from io import BytesIO
 from openpyxl.styles import PatternFill
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Compras Inteligente - Tapeçaria", layout="wide")
+st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 
 # ==========================================
-# --- TELA DE SENHA (BLOQUEIO DE ACESSO) ---
+# --- ESTILIZAÇÃO CSS (DESIGN PREMIUM) ---
+# ==========================================
+st.markdown("""
+    <style>
+    /* Fundo levemente cinzento para destacar os blocos brancos */
+    .stApp {
+        background-color: #F8F9FA;
+    }
+    /* Estilizar o botão principal para um Azul Corporativo Premium */
+    div.stButton > button:first-child {
+        background-color: #004A8F;
+        color: white;
+        border-radius: 6px;
+        border: none;
+        padding: 8px 24px;
+        font-weight: 600;
+        transition: 0.3s;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #003366;
+        color: white;
+        border: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# --- TELA DE SENHA (BLOQUEIO CENTRALIZADO) ---
 # ==========================================
 SENHA_ACESSO = "Tape2026"
 
@@ -19,24 +46,35 @@ if "liberado" not in st.session_state:
     st.session_state.liberado = False
 
 if not st.session_state.liberado:
-    st.title("🔒 Acesso Restrito - Tapeçaria")
-    st.info("Por favor, insira a senha de liberação para aceder ao portal de análise.")
-    senha = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        if senha == SENHA_ACESSO:
-            st.session_state.liberado = True
-            st.rerun()
-        else:
-            st.error("Senha incorreta. Tente novamente.")
+    # Cria 3 colunas e usa a do meio para centralizar o login
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("<br><br><br><br>", unsafe_allow_html=True) # Espaçamento
+        
+        # Tenta carregar a logo se existir, se não, mostra um ícone
+        try: 
+            st.image("logo.png", width=200)
+        except: 
+            st.markdown("<h1 style='text-align: center;'>🏢</h1>", unsafe_allow_html=True)
+            
+        st.markdown("<h2 style='text-align: center; color: #333;'>Acesso Restrito</h2>", unsafe_allow_html=True)
+        st.info("Insira a senha de sistema para aceder à inteligência de compras.")
+        
+        senha = st.text_input("Senha", type="password")
+        if st.button("Entrar no Portal", use_container_width=True):
+            if senha == SENHA_ACESSO:
+                st.session_state.liberado = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta. Tente novamente.")
     st.stop()
 
-# Inicializa o estado da análise concluída para não dar erro
+# ==========================================
+# --- VARIÁVEIS DE SESSÃO ---
+# ==========================================
 if "analise_concluida" not in st.session_state:
     st.session_state.analise_concluida = False
 
-# ==========================================
-# --- DADOS PADRÃO DE FORNECEDORES ---
-# ==========================================
 if "df_regras" not in st.session_state:
     st.session_state.df_regras = pd.DataFrame([
         {"FORNECEDOR": "CORTTEX", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
@@ -118,7 +156,7 @@ def extrair_dados_pdf_web(pdf_file):
     except: 
         return pd.DataFrame(), []
 
-# --- INTERFACE WEB (BARRA LATERAL) ---
+# --- INTERFACE WEB (BARRA LATERAL LIMPA) ---
 with st.sidebar:
     try: 
         st.image("logo.png", use_container_width=True)
@@ -126,28 +164,30 @@ with st.sidebar:
         pass
         
     st.markdown("---")
-    st.header("⚙️ Configurações Gerais")
-    meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
-    meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
-    fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
-    nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
     
-    if nome_sugerido.endswith(".xlsx"):
-        nome_final_xlsx = nome_sugerido
-    else:
-        nome_final_xlsx = f"{nome_sugerido}.xlsx"
+    # Upload principal em evidência
+    st.header("📂 Nova Análise")
+    uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
+    
+    if not uploaded_files:
+        st.session_state.analise_concluida = False
         
     st.markdown("---")
     
-    uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
-    
-    # Se os ficheiros forem alterados/removidos, reseta a memória
-    if not uploaded_files:
-        st.session_state.analise_concluida = False
-    
-    with st.expander("🏭 Fornecedores e Múltiplos"):
-        st.caption("Adicione ou edite regras. Use a última linha vazia para adicionar novos.")
+    # Configurações escondidas num expansor
+    with st.expander("⚙️ Configurações Avançadas"):
+        meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
+        meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
+        fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
+        nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
         
+        if nome_sugerido.endswith(".xlsx"):
+            nome_final_xlsx = nome_sugerido
+        else:
+            nome_final_xlsx = f"{nome_sugerido}.xlsx"
+            
+    with st.expander("🏭 Fornecedores e Múltiplos"):
+        st.caption("Edite ou adicione regras na última linha vazia.")
         df_regras_editado = st.data_editor(
             st.session_state.df_regras, 
             num_rows="dynamic", 
@@ -164,14 +204,15 @@ with col1:
     except: 
         pass
 with col2:
-    st.title("Compras Inteligente")
+    st.title("Inteligência de Compras")
 
-st.markdown("### Gestão de Compras e Transferências")
+st.markdown("##### Portal Operacional - Tapeçaria")
+st.markdown("<br>", unsafe_allow_html=True)
 
 if uploaded_files:
-    if st.button("🚀 Processar Análise"):
+    if st.button("🚀 Processar Análise Inteligente"):
         
-        with st.spinner("A analisar dados e calcular múltiplos..."):
+        with st.spinner("A processar dados, calcular múltiplos e gerar relatórios..."):
             dfs_por_filial = {}
             todos_dados = []
             meses_globais = []
@@ -416,7 +457,7 @@ if uploaded_files:
                                 ws.cell(r, idx_parado).fill = c_red
                                 ws.cell(r, idx_estoque).fill = c_red
 
-                # --- GRAVANDO TUDO NA MEMÓRIA DO ROBÔ ---
+                # Grava tudo na memória
                 filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
                 filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
                 filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
@@ -432,10 +473,9 @@ if uploaded_files:
                 st.session_state.analise_concluida = True
 
     # ==========================================
-    # --- RENDERIZAÇÃO DAS ABAS (FORA DO BOTÃO) ---
+    # --- RENDERIZAÇÃO DAS ABAS ---
     # ==========================================
     if st.session_state.analise_concluida:
-        # Puxando as variáveis da memória
         dfs_por_filial = st.session_state.dfs_por_filial
         dash_qtd_comprar = st.session_state.dash_qtd_comprar
         dash_qtd_transferida = st.session_state.dash_qtd_transferida
@@ -452,27 +492,27 @@ if uploaded_files:
         with tab1:
             st.subheader("Indicadores de Desempenho")
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🛒 Comprar", f"{int(dash_qtd_comprar)} un.")
-            c2.metric("🔄 Economia", f"{int(dash_qtd_transferida)} un.")
-            c3.metric("⚠️ Picos", f"{int(dash_itens_pico)} itens")
+            c1.metric("🛒 Volume de Compra (un.)", f"{int(dash_qtd_comprar)}")
+            c2.metric("🔄 Economia Estimada (un.)", f"{int(dash_qtd_transferida)}")
+            c3.metric("⚠️ Picos Detetados", f"{int(dash_itens_pico)}")
             
             if not df_p.empty:
                 f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax()
             else:
                 f_p = "Nenhuma"
-                
             c4.metric("📦 Maior Estoque Parado", f_p)
             
-            st.success("✅ Análise concluída! O Excel está pronto para download abaixo.")
+            st.success("✅ Inteligência processada com sucesso! O seu ficheiro Excel está pronto.")
             st.download_button(
-                label="📥 Baixar Relatório Excel", 
+                label="📥 Descarregar Relatório Inteligente (Excel)", 
                 data=st.session_state.excel_data, 
                 file_name=st.session_state.nome_final_xlsx, 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
 
         with tab2:
-            st.subheader("Produtos com maior sugestão de compra")
+            st.subheader("Prioridade Máxima (Top 15)")
             df_all = pd.concat(dfs_por_filial.values())
             top_compra = df_all[df_all['SUGESTAO COMPRA'] > 0].sort_values(
                 by='SUGESTAO COMPRA', ascending=False
@@ -481,25 +521,62 @@ if uploaded_files:
             st.dataframe(top_compra[cols_view], use_container_width=True)
 
         with tab3:
-            st.subheader("Análise de Estoque Morto / Excedente por Filial")
+            st.subheader("Distribuição de Estoque Excedente")
             if not df_p.empty:
                 grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index()
                 fig = px.bar(
                     grafico_dados, 
                     x='FILIAL_NOME', 
                     y='ESTOQUE', 
-                    title="Volume de Estoque Acima do Limite (un.)", 
+                    title="Volume de Estoque Acima do Limite de Giro", 
                     color='ESTOQUE', 
                     color_continuous_scale='Reds'
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else: 
-                st.info("Não há estoque parado detetado com os parâmetros atuais.")
+                st.info("Nenhum stock crítico detetado com base nos parâmetros atuais.")
 
         with tab4:
-            # Como a interface está "desvinculada" do botão, trocar isso aqui funciona perfeitamente!
+            st.subheader("Prévia Colorida dos Dados")
             sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
-            st.dataframe(dfs_por_filial[sel_f], use_container_width=True)
+            
+            df_view = dfs_por_filial[sel_f].copy()
+            
+            # --- FUNÇÃO PARA COLORIR A TABELA NO SITE (Igual ao Excel) ---
+            def pintar_tabela(row):
+                cols = row.index
+                estilos = [''] * len(cols)
+                
+                def f_idx(nome): return cols.get_loc(nome) if nome in cols else -1
+                
+                i_parado = f_idx('ESTOQUE PARADO')
+                i_estoque = f_idx('ESTOQUE')
+                i_atipica = f_idx('VENDA_ATIPICA')
+                i_compra = f_idx('SUGESTAO COMPRA')
+                i_transf = f_idx('TRANS INTERNA')
+                i_comprada = f_idx('COMPRADA')
+                
+                # Regras de Cor (Fundo da célula + Letra preta para leitura fácil)
+                if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
+                    estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
+                    if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
+                        
+                if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')):
+                    estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
+                    
+                if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0:
+                    estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
+                    
+                if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
+                    estilos[i_transf] = 'background-color: #C9DAF8; color: black;'
+                    
+                if i_comprada >= 0 and pd.to_numeric(row.get('COMPRADA', 0), errors='coerce') > 0:
+                    estilos[i_comprada] = 'background-color: #FCE5CD; color: black;'
+                    
+                return estilos
+
+            # Renderiza a tabela aplicando o estilo inteligente
+            st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
 
 else: 
-    st.info("A aguardar upload. Clique em 'Processar' para gerar a inteligência.")
+    st.info("A aguardar documentos. Por favor, carregue os ficheiros PDF na barra lateral para iniciar.")
