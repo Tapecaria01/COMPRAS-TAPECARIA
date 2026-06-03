@@ -15,20 +15,23 @@ st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 # ==========================================
 st.markdown("""
     <style>
+    /* Forçar o fundo escuro nativo para evitar telas brancas */
+    .stApp {
+        background-color: #0E1117 !important;
+    }
     /* Estilizar o botão principal para um Azul Corporativo Premium */
     div.stButton > button:first-child {
-        background-color: #004A8F;
-        color: white;
-        border-radius: 6px;
-        border: none;
-        padding: 8px 24px;
-        font-weight: 600;
-        transition: 0.3s;
+        background-color: #004A8F !important;
+        color: white !important;
+        border-radius: 6px !important;
+        border: none !important;
+        padding: 8px 24px !important;
+        font-weight: 600 !important;
+        transition: 0.3s !important;
     }
     div.stButton > button:first-child:hover {
-        background-color: #003366;
-        color: white;
-        border: none;
+        background-color: #003366 !important;
+        color: white !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -47,8 +50,8 @@ if not st.session_state.liberado:
     with col2:
         st.markdown("<br><br><br><br>", unsafe_allow_html=True) # Espaçamento
         
-        # Criação de sub-colunas para garantir que a logo fica milimetricamente no centro
-        sc1, sc2, sc3 = st.columns([1, 1.5, 1])
+        # Sub-colunas com as laterais maiores (1.5) para empurrar a logo exatamente para o centro
+        sc1, sc2, sc3 = st.columns([1.5, 1, 1.5])
         with sc2:
             try: 
                 st.image("logo.png", use_container_width=True)
@@ -164,8 +167,8 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # Upload principal em evidência
-    st.header("📂 Nova Análise")
+    # Upload principal em evidência (Texto alterado para "Nova Compra")
+    st.header("📂 Nova Compra")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
     
     if not uploaded_files:
@@ -541,7 +544,6 @@ if uploaded_files:
             
             df_view = dfs_por_filial[sel_f].copy()
             
-            # --- FUNÇÃO PARA COLORIR A TABELA NO SITE (Igual ao Excel) ---
             def pintar_tabela(row):
                 cols = row.index
                 estilos = [''] * len(cols)
@@ -555,7 +557,6 @@ if uploaded_files:
                 i_transf = f_idx('TRANS INTERNA')
                 i_comprada = f_idx('COMPRADA')
                 
-                # Regras de Cor (Fundo da célula + Letra preta para leitura fácil)
                 if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
                     estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
                     if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
@@ -574,7 +575,6 @@ if uploaded_files:
                     
                 return estilos
 
-            # Renderiza a tabela aplicando o estilo inteligente
             st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
 
 else: 
