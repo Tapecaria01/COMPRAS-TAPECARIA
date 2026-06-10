@@ -167,7 +167,7 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # Upload principal em evidência (Texto alterado para "Nova Compra")
+    # Upload principal em evidência
     st.header("📂 Nova Compra")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
     
@@ -496,7 +496,7 @@ if uploaded_files:
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("🛒 Volume de Compra (un.)", f"{int(dash_qtd_comprar)}")
             c2.metric("🔄 Economia Estimada (un.)", f"{int(dash_qtd_transferida)}")
-            c3.metric("⚠️ Picos Detetados", f"{int(dash_itens_pico)}")
+            c3.metric("⚠️ Picos de vendas", f"{int(dash_itens_pico)}")
             
             if not df_p.empty:
                 f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax()
