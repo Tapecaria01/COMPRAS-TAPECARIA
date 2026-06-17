@@ -5,7 +5,8 @@ import re
 import math
 import plotly.express as px
 from io import BytesIO
-from openpyxl.styles import PatternFill
+from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+from openpyxl.utils import get_column_letter
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
@@ -45,12 +46,9 @@ if "liberado" not in st.session_state:
     st.session_state.liberado = False
 
 if not st.session_state.liberado:
-    # Cria 3 colunas e usa a do meio para centralizar o bloco de login
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<br><br><br><br>", unsafe_allow_html=True) # Espaçamento
-        
-        # Sub-colunas com as laterais maiores (1.5) para empurrar a logo exatamente para o centro
+        st.markdown("<br><br><br><br>", unsafe_allow_html=True)
         sc1, sc2, sc3 = st.columns([1.5, 1, 1.5])
         with sc2:
             try: 
@@ -58,7 +56,6 @@ if not st.session_state.liberado:
             except: 
                 st.markdown("<h1 style='text-align: center; color: white;'>🏢</h1>", unsafe_allow_html=True)
             
-        # Textos em Branco e Azul
         st.markdown("<h2 style='text-align: center; color: #FFFFFF;'>Acesso Restrito</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #4DA8DA;'>Insira a senha de sistema para aceder à inteligência de compras.</p>", unsafe_allow_html=True)
         
@@ -158,7 +155,7 @@ def extrair_dados_pdf_web(pdf_file):
     except: 
         return pd.DataFrame(), []
 
-# --- INTERFACE WEB (BARRA LATERAL LIMPA) ---
+# --- INTERFACE WEB ---
 with st.sidebar:
     try: 
         st.image("logo.png", use_container_width=True)
@@ -166,8 +163,6 @@ with st.sidebar:
         pass
         
     st.markdown("---")
-    
-    # Upload principal em evidência
     st.header("📂 Nova Compra")
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
     
@@ -176,7 +171,6 @@ with st.sidebar:
         
     st.markdown("---")
     
-    # Configurações escondidas num expansor
     with st.expander("⚙️ Configurações Avançadas"):
         meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
         meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
@@ -423,7 +417,51 @@ if uploaded_files:
                         sheet_n = nome_destino[:30]
                         df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
                         
+                        # ====================================================
+                        # === NOVA FORMATAÇÃO DO EXCEL (ESTILO DO PRINT) ===
+                        # ====================================================
                         ws = writer.sheets[sheet_n]
+                        
+                        # Estilos para o cabeçalho e grade
+                        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
+                                             top=Side(style='thin'), bottom=Side(style='thin'))
+                        header_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                        header_font = Font(bold=True)
+                        center_align = Alignment(horizontal='center', vertical='center')
+                        
+                        # Aplica Filtros Automáticos e Congela o Cabeçalho (Linha 1)
+                        ws.auto_filter.ref = ws.dimensions
+                        ws.freeze_panes = 'A2'
+                        
+                        # Formata todas as células (Grade, Cabeçalho e Larguras)
+                        for col_idx, col in enumerate(ws.columns, 1):
+                            col_letter = get_column_letter(col_idx)
+                            max_length = 0
+                            
+                            for cell in col:
+                                # Coloca Borda em Tudo
+                                cell.border = thin_border
+                                
+                                # Se for a Linha 1 (Cabeçalho): Fundo Amarelo, Negrito e Centro
+                                if cell.row == 1:
+                                    cell.fill = header_fill
+                                    cell.font = header_font
+                                    cell.alignment = center_align
+                                # Se não for a coluna de Descrição, centraliza o dado
+                                elif col_idx != 2:
+                                    cell.alignment = center_align
+                                    
+                                # Calcula o tamanho do maior texto para ajustar a coluna
+                                try:
+                                    if len(str(cell.value)) > max_length:
+                                        max_length = len(str(cell.value))
+                                except:
+                                    pass
+                                    
+                            # Aplica a largura ajustada (limitada a 45 para não ficar gigante)
+                            ws.column_dimensions[col_letter].width = min(max_length + 2, 45)
+
+                        # --- MANTER AS CORES DE ALERTA ESPECÍFICAS ---
                         cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
                         ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                         cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
@@ -439,20 +477,16 @@ if uploaded_files:
                         
                         for r in range(2, len(ws['A']) + 1):
                             val_comprada = limpar_v(ws.cell(r, idx_comprada).value)
-                            if val_comprada > 0:
-                                ws.cell(r, idx_comprada).fill = cl 
+                            if val_comprada > 0: ws.cell(r, idx_comprada).fill = cl 
                                 
                             val_compra = limpar_v(ws.cell(r, idx_compra).value)
-                            if val_compra > 0:
-                                ws.cell(r, idx_compra).fill = cv 
+                            if val_compra > 0: ws.cell(r, idx_compra).fill = cv 
                                 
                             val_transf = str(ws.cell(r, idx_transf).value)
-                            if val_transf != "0" and val_transf != "None":
-                                ws.cell(r, idx_transf).fill = ca 
+                            if val_transf != "0" and val_transf != "None": ws.cell(r, idx_transf).fill = ca 
                                 
                             val_atipica = str(ws.cell(r, idx_atipica).value)
-                            if "⚠️ SIM" in val_atipica:
-                                ws.cell(r, idx_atipica).fill = cy 
+                            if "⚠️ SIM" in val_atipica: ws.cell(r, idx_atipica).fill = cy 
                             
                             val_parado = ws.cell(r, idx_parado).value
                             if val_parado and "🛑 SIM" in str(val_parado): 
