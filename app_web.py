@@ -234,14 +234,20 @@ if uploaded_files:
                 vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
                 
-                def calcular_excedente(row):
-                    if row['MEDIA_SISTEMA'] == 0: 
-                        return row['ESTOQUE_DISPONIVEL']
-                    else:
-                        excesso = row['ESTOQUE_DISPONIVEL'] - (row['MEDIA_SISTEMA'] * meta)
-                        return max(0, excesso) 
-                
-                df_global['EXCEDENTE_DISPONIVEL'] = df_global.apply(calcular_excedente, axis=1)
+                # --- NOVO GESTOR DE MEMÓRIA DE STOCK (Evita Gastos Duplos) ---
+                tracker_estoque = {}
+                for _, row in df_global.iterrows():
+                    f_nome = row['FILIAL_NOME']
+                    c = row['CODIGO']
+                    est = float(row['ESTOQUE'])
+                    med = float(row['MEDIA_SISTEMA'])
+                    
+                    excesso = est if med == 0 else max(0.0, est - (med * meta))
+                    tracker_estoque[(f_nome, c)] = {
+                        'EXCEDENTE': excesso,
+                        'MEDIA': med,
+                        'ESTOQUE_FINAL': est
+                    }
 
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -292,46 +298,47 @@ if uploaded_files:
                             necessidade = nec_calc
                             
                             if necessidade > 0:
-                                filtro1 = df_global['CODIGO'] == cod
-                                filtro2 = df_global['FILIAL_NOME'] != nome_destino
-                                filtro3 = df_global['EXCEDENTE_DISPONIVEL'] > 0
-                                outras = df_global[filtro1 & filtro2 & filtro3]
+                                opcoes = []
+                                # Procura nas outras filiais pelo tracker seguro
+                                for f_outra in dfs_por_filial.keys():
+                                    if f_outra == nome_destino: continue
+                                    chave = (f_outra, cod)
+                                    if chave in tracker_estoque and tracker_estoque[chave]['EXCEDENTE'] > 0:
+                                        opcoes.append({
+                                            'filial': f_outra,
+                                            'media': tracker_estoque[chave]['MEDIA'],
+                                            'excedente': tracker_estoque[chave]['EXCEDENTE']
+                                        })
                                 
-                                if not outras.empty:
-                                    outras_ord = outras.sort_values(
-                                        by=['MEDIA_SISTEMA', 'EXCEDENTE_DISPONIVEL'], 
-                                        ascending=[True, False]
-                                    )
+                                if opcoes:
+                                    opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
                                     trans_item = []
                                     nec_rest = necessidade
                                     
-                                    for idx_g, cedente in outras_ord.iterrows():
-                                        if nec_rest <= 0: 
-                                            break
-                                            
-                                        sal_ced = df_global.loc[idx_g, 'EXCEDENTE_DISPONIVEL']
-                                        if sal_ced <= 0: 
-                                            continue
-                                            
+                                    for op in opcoes:
+                                        if nec_rest <= 0: break
+                                        
+                                        chave_ced = (op['filial'], cod)
+                                        sal_ced = tracker_estoque[chave_ced]['EXCEDENTE']
+                                        
+                                        if sal_ced <= 0: continue
+                                        
                                         if nec_rest < 30 and sal_ced >= 30:
                                             qtd_a_tirar = 30
                                         else:
                                             qtd_a_tirar = min(nec_rest, sal_ced)
                                             
                                         if qtd_a_tirar >= 30:
-                                            df_global.loc[idx_g, 'EXCEDENTE_DISPONIVEL'] -= qtd_a_tirar
-                                            df_global.loc[idx_g, 'ESTOQUE_DISPONIVEL'] -= qtd_a_tirar
+                                            # DEDUZ DA MEMÓRIA IMEDIATAMENTE (Cura do Bug)
+                                            tracker_estoque[chave_ced]['EXCEDENTE'] -= qtd_a_tirar
+                                            tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
                                             nec_rest -= qtd_a_tirar
                                             
-                                            nome_ced = str(cedente['FILIAL_NOME'])
-                                            if 'RIBEIR' in nome_ced:
-                                                apelido = 'RP'
-                                            elif 'LONDRINA' in nome_ced:
-                                                apelido = 'Lon'
-                                            elif 'FRANCA' in nome_ced:
-                                                apelido = 'Frc'
-                                            else:
-                                                apelido = nome_ced
+                                            nome_ced = op['filial']
+                                            if 'RIBEIR' in nome_ced: apelido = 'RP'
+                                            elif 'LONDRINA' in nome_ced: apelido = 'Lon'
+                                            elif 'FRANCA' in nome_ced: apelido = 'Frc'
+                                            else: apelido = nome_ced
                                                 
                                             trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
                                             
@@ -422,46 +429,37 @@ if uploaded_files:
                         # ====================================================
                         ws = writer.sheets[sheet_n]
                         
-                        # Estilos para o cabeçalho e grade
                         thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
                                              top=Side(style='thin'), bottom=Side(style='thin'))
                         header_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
                         header_font = Font(bold=True)
                         center_align = Alignment(horizontal='center', vertical='center')
                         
-                        # Aplica Filtros Automáticos e Congela o Cabeçalho (Linha 1)
                         ws.auto_filter.ref = ws.dimensions
                         ws.freeze_panes = 'A2'
                         
-                        # Formata todas as células (Grade, Cabeçalho e Larguras)
                         for col_idx, col in enumerate(ws.columns, 1):
                             col_letter = get_column_letter(col_idx)
                             max_length = 0
                             
                             for cell in col:
-                                # Coloca Borda em Tudo
                                 cell.border = thin_border
                                 
-                                # Se for a Linha 1 (Cabeçalho): Fundo Amarelo, Negrito e Centro
                                 if cell.row == 1:
                                     cell.fill = header_fill
                                     cell.font = header_font
                                     cell.alignment = center_align
-                                # Se não for a coluna de Descrição, centraliza o dado
                                 elif col_idx != 2:
                                     cell.alignment = center_align
                                     
-                                # Calcula o tamanho do maior texto para ajustar a coluna
                                 try:
                                     if len(str(cell.value)) > max_length:
                                         max_length = len(str(cell.value))
                                 except:
                                     pass
                                     
-                            # Aplica a largura ajustada (limitada a 45 para não ficar gigante)
                             ws.column_dimensions[col_letter].width = min(max_length + 2, 45)
 
-                        # --- MANTER AS CORES DE ALERTA ESPECÍFICAS ---
                         cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
                         ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
                         cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
@@ -493,7 +491,13 @@ if uploaded_files:
                                 ws.cell(r, idx_parado).fill = c_red
                                 ws.cell(r, idx_estoque).fill = c_red
 
-                # Grava tudo na memória
+                # Atualiza o df_global com o estoque final para o dashboard
+                def get_estoque_final(row):
+                    chave = (row['FILIAL_NOME'], row['CODIGO'])
+                    return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
+                    
+                df_global['ESTOQUE_DISPONIVEL'] = df_global.apply(get_estoque_final, axis=1)
+
                 filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
                 filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
                 filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
@@ -533,7 +537,7 @@ if uploaded_files:
             c3.metric("⚠️ Picos de vendas", f"{int(dash_itens_pico)}")
             
             if not df_p.empty:
-                f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().idxmax()
+                f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().idxmax()
             else:
                 f_p = "Nenhuma"
             c4.metric("📦 Maior Estoque Parado", f_p)
@@ -559,13 +563,13 @@ if uploaded_files:
         with tab3:
             st.subheader("Distribuição de Estoque Excedente")
             if not df_p.empty:
-                grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE'].sum().reset_index()
+                grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().reset_index()
                 fig = px.bar(
                     grafico_dados, 
                     x='FILIAL_NOME', 
-                    y='ESTOQUE', 
+                    y='ESTOQUE_DISPONIVEL', 
                     title="Volume de Estoque Acima do Limite de Giro", 
-                    color='ESTOQUE', 
+                    color='ESTOQUE_DISPONIVEL', 
                     color_continuous_scale='Reds'
                 )
                 st.plotly_chart(fig, use_container_width=True)
