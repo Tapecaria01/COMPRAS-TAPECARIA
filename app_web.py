@@ -17,9 +17,7 @@ st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 # ==========================================
 st.markdown("""
     <style>
-    .stApp { 
-        background-color: #0E1117 !important; 
-    }
+    .stApp { background-color: #0E1117 !important; }
     div.stButton > button:first-child {
         background-color: #004A8F !important;
         color: white !important;
@@ -182,11 +180,7 @@ with st.sidebar:
         meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
         fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
         nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
-        
-        if nome_sugerido.endswith(".xlsx"):
-            nome_final_xlsx = nome_sugerido
-        else:
-            nome_final_xlsx = f"{nome_sugerido}.xlsx"
+        nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
             
     with st.expander("🏭 Fornecedores e Múltiplos"):
         st.caption("Edite ou adicione regras na última linha vazia.")
@@ -252,241 +246,268 @@ if uploaded_files:
                             
                         tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est}
 
+                    # Novo método seguro de gerar Excel (sem "with") para não camuflar erros
                     output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        for nome_destino, df_dest in dfs_por_filial.items():
+                    writer = pd.ExcelWriter(output, engine='openpyxl')
+                    
+                    for nome_destino, df_dest in dfs_por_filial.items():
+                        
+                        def classificar_estoque_parado(row):
+                            if row['ESTOQUE'] > 0:
+                                if row['MEDIA_SISTEMA'] == 0: 
+                                    return "🛑 SIM"
+                                elif row['MESES_ESTOQUE'] > meses_parado: 
+                                    return "🛑 SIM"
+                            return ""
                             
-                            def classificar_estoque_parado(row):
-                                if row['ESTOQUE'] > 0:
-                                    if row['MEDIA_SISTEMA'] == 0: 
-                                        return "🛑 SIM"
-                                    elif row['MESES_ESTOQUE'] > meses_parado: 
-                                        return "🛑 SIM"
-                                return ""
-                                
-                            df_dest['ESTOQUE PARADO'] = df_dest.apply(classificar_estoque_parado, axis=1)
+                        # Substituto 100% seguro para o 'apply' problemático
+                        ep_list = []
+                        for _, row in df_dest.iterrows():
+                            ep_list.append(classificar_estoque_parado(row))
+                        df_dest['ESTOQUE PARADO'] = ep_list
+                        
+                        def processar_atipico(row):
+                            meses_v = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
+                            pico = max(meses_v)
+                            outros = meses_v.copy()
+                            outros.remove(pico)
                             
-                            def processar_atipico(row):
-                                meses_v = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
-                                pico = max(meses_v)
-                                outros = meses_v.copy()
-                                outros.remove(pico)
+                            soma_outros = sum(outros)
+                            if soma_outros > 0:
+                                media_sem = soma_outros / 3
+                            else:
+                                media_sem = 0
+                            
+                            media_sis = row['MEDIA_SISTEMA']
+                            if media_sis > 0 and media_sem > 0: 
+                                base_comp = min(media_sis, media_sem)
+                            elif media_sem > 0: 
+                                base_comp = media_sem
+                            else: 
+                                base_comp = media_sis
                                 
-                                soma_outros = sum(outros)
-                                if soma_outros > 0:
-                                    media_sem = soma_outros / 3
-                                else:
-                                    media_sem = 0
-                                
-                                media_sis = row['MEDIA_SISTEMA']
-                                if media_sis > 0 and media_sem > 0: 
-                                    base_comp = min(media_sis, media_sem)
-                                elif media_sem > 0: 
-                                    base_comp = media_sem
-                                else: 
-                                    base_comp = media_sis
-                                    
-                                if base_comp > 0 and pico >= (base_comp * fator_pico) and pico >= 30: 
-                                    return "⚠️ SIM", round(media_sem, 2)
-                                elif base_comp == 0 and pico >= 30: 
-                                    return "⚠️ SIM", 0.0
-                                return "Não", media_sis
+                            if base_comp > 0 and pico >= (base_comp * fator_pico) and pico >= 30: 
+                                return "⚠️ SIM", round(media_sem, 2)
+                            elif base_comp == 0 and pico >= 30: 
+                                return "⚠️ SIM", 0.0
+                            return "Não", media_sis
 
-                            res_at = df_dest.apply(processar_atipico, axis=1)
-                            df_dest['VENDA_ATIPICA'] = [x[0] for x in res_at]
-                            df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_at]
-                            dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
+                        # Substituto 100% seguro para o 'apply' problemático
+                        va_list = []
+                        mpc_list = []
+                        for _, row in df_dest.iterrows():
+                            va, mpc = processar_atipico(row)
+                            va_list.append(va)
+                            mpc_list.append(mpc)
+                        df_dest['VENDA_ATIPICA'] = va_list
+                        df_dest['MEDIA_P_CALCULO'] = mpc_list
+                        
+                        dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
+                        
+                        def calcular_log(row):
+                            cod = row['CODIGO']
+                            nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
+                            necessidade = nec_calc
                             
-                            def calcular_log(row):
-                                cod = row['CODIGO']
-                                nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
-                                necessidade = nec_calc
+                            if necessidade > 0:
+                                opcoes = []
+                                for f_outra in dfs_por_filial.keys():
+                                    if f_outra == nome_destino: 
+                                        continue
+                                    chave = (f_outra, cod)
+                                    if chave in tracker_estoque and tracker_estoque[chave]['EXCEDENTE'] > 0:
+                                        opcoes.append({'filial': f_outra, 'media': tracker_estoque[chave]['MEDIA'], 'excedente': tracker_estoque[chave]['EXCEDENTE']})
                                 
-                                if necessidade > 0:
-                                    opcoes = []
-                                    for f_outra in dfs_por_filial.keys():
-                                        if f_outra == nome_destino: 
+                                if opcoes:
+                                    opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
+                                    trans_item = []
+                                    nec_rest = necessidade
+                                    
+                                    for op in opcoes:
+                                        if nec_rest <= 0: 
+                                            break
+                                        chave_ced = (op['filial'], cod)
+                                        sal_ced = tracker_estoque[chave_ced]['EXCEDENTE']
+                                        
+                                        if sal_ced <= 0: 
                                             continue
-                                        chave = (f_outra, cod)
-                                        if chave in tracker_estoque and tracker_estoque[chave]['EXCEDENTE'] > 0:
-                                            opcoes.append({'filial': f_outra, 'media': tracker_estoque[chave]['MEDIA'], 'excedente': tracker_estoque[chave]['EXCEDENTE']})
-                                    
-                                    if opcoes:
-                                        opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
-                                        trans_item = []
-                                        nec_rest = necessidade
-                                        
-                                        for op in opcoes:
-                                            if nec_rest <= 0: 
-                                                break
-                                            chave_ced = (op['filial'], cod)
-                                            sal_ced = tracker_estoque[chave_ced]['EXCEDENTE']
                                             
-                                            if sal_ced <= 0: 
-                                                continue
-                                                
-                                            if nec_rest < 30 and sal_ced >= 30: 
-                                                qtd_a_tirar = 30
+                                        if nec_rest < 30 and sal_ced >= 30: 
+                                            qtd_a_tirar = 30
+                                        else: 
+                                            qtd_a_tirar = min(nec_rest, sal_ced)
+                                            
+                                        if qtd_a_tirar >= 30:
+                                            tracker_estoque[chave_ced]['EXCEDENTE'] -= qtd_a_tirar
+                                            tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
+                                            nec_rest -= qtd_a_tirar
+                                            
+                                            nome_ced = op['filial']
+                                            if 'RIBEIR' in nome_ced: 
+                                                apelido = 'RP'
+                                            elif 'LONDRINA' in nome_ced: 
+                                                apelido = 'Lon'
+                                            elif 'FRANCA' in nome_ced: 
+                                                apelido = 'Frc'
                                             else: 
-                                                qtd_a_tirar = min(nec_rest, sal_ced)
+                                                apelido = nome_ced
                                                 
-                                            if qtd_a_tirar >= 30:
-                                                tracker_estoque[chave_ced]['EXCEDENTE'] -= qtd_a_tirar
-                                                tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
-                                                nec_rest -= qtd_a_tirar
-                                                
-                                                nome_ced = op['filial']
-                                                if 'RIBEIR' in nome_ced: 
-                                                    apelido = 'RP'
-                                                elif 'LONDRINA' in nome_ced: 
-                                                    apelido = 'Lon'
-                                                elif 'FRANCA' in nome_ced: 
-                                                    apelido = 'Frc'
-                                                else: 
-                                                    apelido = nome_ced
-                                                    
-                                                trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
-                                                
-                                        if trans_item: 
-                                            return " | ".join(trans_item), round(max(0, nec_rest), 2)
-                                return "0", round(max(0, necessidade), 2)
+                                            trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
+                                            
+                                    if trans_item: 
+                                        return " | ".join(trans_item), round(max(0, nec_rest), 2)
+                            return "0", round(max(0, necessidade), 2)
 
-                            res_log = df_dest.apply(calcular_log, axis=1)
-                            df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
-                            sug_base = [x[1] for x in res_log]
+                        # Substituto 100% seguro para o 'apply' problemático
+                        ti_list = []
+                        sug_list = []
+                        for _, row in df_dest.iterrows():
+                            ti, sug = calcular_log(row)
+                            ti_list.append(ti)
+                            sug_list.append(sug)
+                        df_dest['TRANS INTERNA'] = ti_list
+                        sug_base = sug_list
 
-                            def aplicar_mult(row, sug):
-                                if sug <= 0: 
-                                    return 0
-                                forn = str(row.get('FORNECEDOR', '')).upper()
-                                desc = str(row.get('DESCRICAO', '')).upper()
-                                
-                                for idx, regra in df_regras_editado.iterrows():
-                                    f_regra = str(regra.get('FORNECEDOR', '')).upper()
-                                    if f_regra and f_regra != "NAN" and f_regra in forn:
-                                        p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
-                                        if p_chave and p_chave != "NAN" and p_chave != "NONE":
-                                            if p_chave not in desc: 
-                                                continue 
-                                        try:
-                                            mult = int(regra['MULTIPLO'])
-                                            tol = int(regra['TOLERANCIA'])
-                                        except: 
+                        def aplicar_mult(row, sug):
+                            if sug <= 0: 
+                                return 0
+                            forn = str(row.get('FORNECEDOR', '')).upper()
+                            desc = str(row.get('DESCRICAO', '')).upper()
+                            
+                            for idx, regra in df_regras_editado.iterrows():
+                                f_regra = str(regra.get('FORNECEDOR', '')).upper()
+                                if f_regra and f_regra != "NAN" and f_regra in forn:
+                                    p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
+                                    if p_chave and p_chave != "NAN" and p_chave != "NONE":
+                                        if p_chave not in desc: 
                                             continue 
-                                        
-                                        if mult > 0:
-                                            base = (int(sug) // mult) * mult
-                                            rest = sug % mult
-                                            if rest >= tol:
-                                                return int(base + mult)
-                                            else:
-                                                return int(base)
-                                                
-                                return int(math.ceil(sug))
-
-                            df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
-                            df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
-                            dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
-                            
-                            def extrair_n(t): 
-                                if str(t) == "0": 
-                                    return 0
-                                numeros = re.findall(r'\d+', str(t))
-                                try:
-                                    return sum([int(n) for n in numeros])
-                                except:
-                                    return 0
-                                
-                            dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_n).sum()
-                            
-                            renames = {
-                                'MES_1': meses_globais[0], 
-                                'MES_2': meses_globais[1], 
-                                'MES_3': meses_globais[2], 
-                                'MES_4': meses_globais[3], 
-                                'MEDIA_SISTEMA': 'MEDIA', 
-                                'MESES_ESTOQUE': 'MESES'
-                            }
-                            df_dest.rename(columns=renames, inplace=True)
-                            
-                            cols_f = [
-                                'CODIGO', 'DESCRICAO', 'EMB.', 
-                                meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
-                                'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 
-                                'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO'
-                            ]
-                            df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
-                            
-                            ws = writer.sheets[sheet_n]
-                            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-                            header_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-                            header_font = Font(bold=True)
-                            center_align = Alignment(horizontal='center', vertical='center')
-                            
-                            ws.auto_filter.ref = ws.dimensions
-                            ws.freeze_panes = 'A2'
-                            
-                            for col_idx, col in enumerate(ws.columns, 1):
-                                col_letter = get_column_letter(col_idx)
-                                max_length = 0
-                                for cell in col:
-                                    cell.border = thin_border
-                                    if cell.row == 1:
-                                        cell.fill = header_fill
-                                        cell.font = header_font
-                                        cell.alignment = center_align
-                                    elif col_idx != 2:
-                                        cell.alignment = center_align
                                     try:
-                                        if len(str(cell.value)) > max_length: 
-                                            max_length = len(str(cell.value))
+                                        mult = int(regra['MULTIPLO'])
+                                        tol = int(regra['TOLERANCIA'])
                                     except: 
-                                        pass
-                                ws.column_dimensions[col_letter].width = min(max_length + 2, 45)
+                                        continue 
+                                    
+                                    if mult > 0:
+                                        base = (int(sug) // mult) * mult
+                                        rest = sug % mult
+                                        if rest >= tol:
+                                            return int(base + mult)
+                                        else:
+                                            return int(base)
+                                            
+                            return int(math.ceil(sug))
 
-                            cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
-                            ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
-                            cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
-                            cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                            c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+                        df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
+                        df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
+                        dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
+                        
+                        def extrair_n(t): 
+                            if str(t) == "0": 
+                                return 0
+                            numeros = re.findall(r'\d+', str(t))
+                            try:
+                                return sum([int(n) for n in numeros])
+                            except:
+                                return 0
                             
-                            idx_estoque = cols_f.index('ESTOQUE') + 1 
-                            idx_comprada = cols_f.index('COMPRADA') + 1 
-                            idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
-                            idx_transf = cols_f.index('TRANS INTERNA') + 1
-                            idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
-                            idx_parado = cols_f.index('ESTOQUE PARADO') + 1
-                            
-                            for r in range(2, len(ws['A']) + 1):
-                                val_comprada = limpar_v(ws.cell(r, idx_comprada).value)
-                                if val_comprada > 0: 
-                                    ws.cell(r, idx_comprada).fill = cl 
-                                    
-                                val_compra = limpar_v(ws.cell(r, idx_compra).value)
-                                if val_compra > 0: 
-                                    ws.cell(r, idx_compra).fill = cv 
-                                    
-                                val_transf = str(ws.cell(r, idx_transf).value)
-                                if val_transf != "0" and val_transf != "None": 
-                                    ws.cell(r, idx_transf).fill = ca 
-                                    
-                                val_atipica = str(ws.cell(r, idx_atipica).value)
-                                if "⚠️ SIM" in val_atipica: 
-                                    ws.cell(r, idx_atipica).fill = cy 
-                                    
-                                val_parado = ws.cell(r, idx_parado).value
-                                if val_parado and "🛑 SIM" in str(val_parado): 
-                                    ws.cell(r, idx_parado).fill = c_red
-                                    ws.cell(r, idx_estoque).fill = c_red
+                        dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_n).sum()
+                        
+                        renames = {
+                            'MES_1': meses_globais[0], 
+                            'MES_2': meses_globais[1], 
+                            'MES_3': meses_globais[2], 
+                            'MES_4': meses_globais[3], 
+                            'MEDIA_SISTEMA': 'MEDIA', 
+                            'MESES_ESTOQUE': 'MESES'
+                        }
+                        df_dest.rename(columns=renames, inplace=True)
+                        
+                        cols_f = [
+                            'CODIGO', 'DESCRICAO', 'EMB.', 
+                            meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
+                            'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 
+                            'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO'
+                        ]
+                        
+                        # Remove caracteres inválidos do nome da aba para não estourar o Excel
+                        sheet_n = re.sub(r'[\\/*?:\[\]]', '', nome_destino)[:30]
+                        df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
+                        
+                        ws = writer.sheets[sheet_n]
+                        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+                        header_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                        header_font = Font(bold=True)
+                        center_align = Alignment(horizontal='center', vertical='center')
+                        
+                        ws.auto_filter.ref = ws.dimensions
+                        ws.freeze_panes = 'A2'
+                        
+                        for col_idx, col in enumerate(ws.columns, 1):
+                            col_letter = get_column_letter(col_idx)
+                            max_length = 0
+                            for cell in col:
+                                cell.border = thin_border
+                                if cell.row == 1:
+                                    cell.fill = header_fill
+                                    cell.font = header_font
+                                    cell.alignment = center_align
+                                elif col_idx != 2:
+                                    cell.alignment = center_align
+                                try:
+                                    if len(str(cell.value)) > max_length: 
+                                        max_length = len(str(cell.value))
+                                except: 
+                                    pass
+                            ws.column_dimensions[col_letter].width = min(max_length + 2, 45)
+
+                        cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+                        ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
+                        cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
+                        cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                        c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+                        
+                        idx_estoque = cols_f.index('ESTOQUE') + 1 
+                        idx_comprada = cols_f.index('COMPRADA') + 1 
+                        idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
+                        idx_transf = cols_f.index('TRANS INTERNA') + 1
+                        idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
+                        idx_parado = cols_f.index('ESTOQUE PARADO') + 1
+                        
+                        for r in range(2, len(ws['A']) + 1):
+                            val_comprada = limpar_v(ws.cell(r, idx_comprada).value)
+                            if val_comprada > 0: 
+                                ws.cell(r, idx_comprada).fill = cl 
+                                
+                            val_compra = limpar_v(ws.cell(r, idx_compra).value)
+                            if val_compra > 0: 
+                                ws.cell(r, idx_compra).fill = cv 
+                                
+                            val_transf = str(ws.cell(r, idx_transf).value)
+                            if val_transf != "0" and val_transf != "None": 
+                                ws.cell(r, idx_transf).fill = ca 
+                                
+                            val_atipica = str(ws.cell(r, idx_atipica).value)
+                            if "⚠️ SIM" in val_atipica: 
+                                ws.cell(r, idx_atipica).fill = cy 
+                                
+                            val_parado = ws.cell(r, idx_parado).value
+                            if val_parado and "🛑 SIM" in str(val_parado): 
+                                ws.cell(r, idx_parado).fill = c_red
+                                ws.cell(r, idx_estoque).fill = c_red
+
+                    # Fecha o ficheiro Excel corretamente
+                    writer.close()
 
                     def get_estoque_final(row):
                         chave = (row['FILIAL_NOME'], row['CODIGO'])
                         if chave in tracker_estoque:
                             return tracker_estoque[chave]['ESTOQUE_FINAL']
-                        else:
-                            return row['ESTOQUE']
+                        return row['ESTOQUE']
                         
-                    df_global['ESTOQUE_DISPONIVEL'] = df_global.apply(get_estoque_final, axis=1)
+                    edf_list = []
+                    for _, row in df_global.iterrows():
+                        edf_list.append(get_estoque_final(row))
+                    df_global['ESTOQUE_DISPONIVEL'] = edf_list
 
                     filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
                     filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
@@ -503,6 +524,7 @@ if uploaded_files:
                     st.session_state.analise_concluida = True
 
                 except Exception as e:
+                    # Agora o erro real será forçado a aparecer na tela
                     st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
                     st.code(traceback.format_exc())
 
