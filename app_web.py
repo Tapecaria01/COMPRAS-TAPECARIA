@@ -123,33 +123,42 @@ def extrair_dados_pdf_web(pdf_file):
                         if m_upper not in meses_encontrados: 
                             meses_encontrados.append(m_upper)
                             
-                for l in texto.split('\n'):
+                for linha in texto.split('\n'):
+                    l = linha.strip()
+                    
                     if "SEGMENTO" in l.upper():
                         match = re.search(r'SEGMENTO\s*:\s*(.*)', l, re.IGNORECASE)
                         if match: 
                             fornecedor_atual = match.group(1).strip()
-                    elif re.match(r'^\d{3,6}\s', l):
-                        partes = l.split()
-                        try:
-                            item_dict = {
-                                'CODIGO': partes[0], 
-                                'DESCRICAO': " ".join(partes[1:-11]), 
-                                'EMB.': partes[-11],
-                                'MES_1': limpar_v(partes[-10]), 
-                                'MES_2': limpar_v(partes[-9]), 
-                                'MES_3': limpar_v(partes[-8]),
-                                'MES_4': limpar_v(partes[-7]), 
-                                'MEDIA_SISTEMA': limpar_v(partes[-6]), 
-                                'ESTOQUE': limpar_v(partes[-5]),
-                                'RESERVA': limpar_v(partes[-4]), 
-                                'COMPRADA': limpar_v(partes[-3]), 
-                                'MESES_ESTOQUE': limpar_v(partes[-1]), 
-                                'FILIAL_NOME': nome_filial, 
-                                'FORNECEDOR': fornecedor_atual
-                            }
-                            dados.append(item_dict)
-                        except: 
-                            continue
+                    else:
+                        # --- EXCEÇÃO EXCLUSIVA YORK ---
+                        # Se o fornecedor for YORK e a linha começar com "***", removemos os asteriscos.
+                        if "YORK" in fornecedor_atual.upper() and l.startswith("***"):
+                            l = re.sub(r'^\*\*\*\s*', '', l)
+                            
+                        # Agora o robô consegue testar e ler normalmente
+                        if re.match(r'^\d{3,6}\s', l):
+                            partes = l.split()
+                            try:
+                                item_dict = {
+                                    'CODIGO': partes[0], 
+                                    'DESCRICAO': " ".join(partes[1:-11]), 
+                                    'EMB.': partes[-11],
+                                    'MES_1': limpar_v(partes[-10]), 
+                                    'MES_2': limpar_v(partes[-9]), 
+                                    'MES_3': limpar_v(partes[-8]),
+                                    'MES_4': limpar_v(partes[-7]), 
+                                    'MEDIA_SISTEMA': limpar_v(partes[-6]), 
+                                    'ESTOQUE': limpar_v(partes[-5]),
+                                    'RESERVA': limpar_v(partes[-4]), 
+                                    'COMPRADA': limpar_v(partes[-3]), 
+                                    'MESES_ESTOQUE': limpar_v(partes[-1]), 
+                                    'FILIAL_NOME': nome_filial, 
+                                    'FORNECEDOR': fornecedor_atual
+                                }
+                                dados.append(item_dict)
+                            except: 
+                                continue
                             
         return pd.DataFrame(dados), meses_encontrados
     except: 
@@ -234,7 +243,7 @@ if uploaded_files:
                 vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
                 
-                # --- NOVO GESTOR DE MEMÓRIA DE STOCK (Evita Gastos Duplos) ---
+                # --- GESTOR DE MEMÓRIA DE STOCK (Evita Gastos Duplos) ---
                 tracker_estoque = {}
                 for _, row in df_global.iterrows():
                     f_nome = row['FILIAL_NOME']
@@ -299,7 +308,6 @@ if uploaded_files:
                             
                             if necessidade > 0:
                                 opcoes = []
-                                # Procura nas outras filiais pelo tracker seguro
                                 for f_outra in dfs_por_filial.keys():
                                     if f_outra == nome_destino: continue
                                     chave = (f_outra, cod)
@@ -329,7 +337,6 @@ if uploaded_files:
                                             qtd_a_tirar = min(nec_rest, sal_ced)
                                             
                                         if qtd_a_tirar >= 30:
-                                            # DEDUZ DA MEMÓRIA IMEDIATAMENTE (Cura do Bug)
                                             tracker_estoque[chave_ced]['EXCEDENTE'] -= qtd_a_tirar
                                             tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
                                             nec_rest -= qtd_a_tirar
@@ -359,261 +366,4 @@ if uploaded_files:
                             desc = str(row.get('DESCRICAO', '')).upper()
                             
                             for idx, regra in df_regras_editado.iterrows():
-                                f_regra = str(regra.get('FORNECEDOR', '')).upper()
-                                
-                                if f_regra and f_regra != "NAN" and f_regra in forn:
-                                    p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
-                                    if p_chave and p_chave != "NAN" and p_chave != "NONE":
-                                        if p_chave not in desc:
-                                            continue 
-                                            
-                                    try:
-                                        mult = int(regra['MULTIPLO'])
-                                        tol = int(regra['TOLERANCIA'])
-                                    except:
-                                        continue 
-                                        
-                                    if mult > 0:
-                                        base = (int(sug) // mult) * mult
-                                        rest = sug % mult
-                                        return int(base + mult if rest >= tol else base)
-                                        
-                            return int(math.ceil(sug))
-
-                        df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
-                        df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
-                        dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
-                        
-                        def extrair_n(t): 
-                            if str(t) == "0":
-                                return 0
-                            numeros = re.findall(r'\d+', str(t))
-                            return sum([int(n) for n in numeros])
-                            
-                        dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_n).sum()
-                        
-                        renames = {
-                            'MES_1': meses_globais[0], 
-                            'MES_2': meses_globais[1], 
-                            'MES_3': meses_globais[2], 
-                            'MES_4': meses_globais[3], 
-                            'MEDIA_SISTEMA': 'MEDIA', 
-                            'MESES_ESTOQUE': 'MESES'
-                        }
-                        df_dest.rename(columns=renames, inplace=True)
-                        
-                        cols_f = [
-                            'CODIGO', 
-                            'DESCRICAO', 
-                            'EMB.', 
-                            meses_globais[0], 
-                            meses_globais[1], 
-                            meses_globais[2], 
-                            meses_globais[3], 
-                            'MEDIA', 
-                            'ESTOQUE', 
-                            'RESERVA', 
-                            'COMPRADA', 
-                            'MESES', 
-                            'SUGESTAO COMPRA', 
-                            'TRANS INTERNA', 
-                            'VENDA_ATIPICA', 
-                            'ESTOQUE PARADO'
-                        ]
-                        
-                        sheet_n = nome_destino[:30]
-                        df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
-                        
-                        # ====================================================
-                        # === NOVA FORMATAÇÃO DO EXCEL (ESTILO DO PRINT) ===
-                        # ====================================================
-                        ws = writer.sheets[sheet_n]
-                        
-                        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), 
-                                             top=Side(style='thin'), bottom=Side(style='thin'))
-                        header_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-                        header_font = Font(bold=True)
-                        center_align = Alignment(horizontal='center', vertical='center')
-                        
-                        ws.auto_filter.ref = ws.dimensions
-                        ws.freeze_panes = 'A2'
-                        
-                        for col_idx, col in enumerate(ws.columns, 1):
-                            col_letter = get_column_letter(col_idx)
-                            max_length = 0
-                            
-                            for cell in col:
-                                cell.border = thin_border
-                                
-                                if cell.row == 1:
-                                    cell.fill = header_fill
-                                    cell.font = header_font
-                                    cell.alignment = center_align
-                                elif col_idx != 2:
-                                    cell.alignment = center_align
-                                    
-                                try:
-                                    if len(str(cell.value)) > max_length:
-                                        max_length = len(str(cell.value))
-                                except:
-                                    pass
-                                    
-                            ws.column_dimensions[col_letter].width = min(max_length + 2, 45)
-
-                        cv = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
-                        ca = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
-                        cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
-                        cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-                        c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
-                        
-                        idx_estoque = cols_f.index('ESTOQUE') + 1 
-                        idx_comprada = cols_f.index('COMPRADA') + 1 
-                        idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
-                        idx_transf = cols_f.index('TRANS INTERNA') + 1
-                        idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
-                        idx_parado = cols_f.index('ESTOQUE PARADO') + 1
-                        
-                        for r in range(2, len(ws['A']) + 1):
-                            val_comprada = limpar_v(ws.cell(r, idx_comprada).value)
-                            if val_comprada > 0: ws.cell(r, idx_comprada).fill = cl 
-                                
-                            val_compra = limpar_v(ws.cell(r, idx_compra).value)
-                            if val_compra > 0: ws.cell(r, idx_compra).fill = cv 
-                                
-                            val_transf = str(ws.cell(r, idx_transf).value)
-                            if val_transf != "0" and val_transf != "None": ws.cell(r, idx_transf).fill = ca 
-                                
-                            val_atipica = str(ws.cell(r, idx_atipica).value)
-                            if "⚠️ SIM" in val_atipica: ws.cell(r, idx_atipica).fill = cy 
-                            
-                            val_parado = ws.cell(r, idx_parado).value
-                            if val_parado and "🛑 SIM" in str(val_parado): 
-                                ws.cell(r, idx_parado).fill = c_red
-                                ws.cell(r, idx_estoque).fill = c_red
-
-                # Atualiza o df_global com o estoque final para o dashboard
-                def get_estoque_final(row):
-                    chave = (row['FILIAL_NOME'], row['CODIGO'])
-                    return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
-                    
-                df_global['ESTOQUE_DISPONIVEL'] = df_global.apply(get_estoque_final, axis=1)
-
-                filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
-                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
-                filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
-                df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
-                
-                st.session_state.dfs_por_filial = dfs_por_filial
-                st.session_state.dash_qtd_comprar = dash_qtd_comprar
-                st.session_state.dash_qtd_transferida = dash_qtd_transferida
-                st.session_state.dash_itens_pico = dash_itens_pico
-                st.session_state.df_p = df_p
-                st.session_state.excel_data = output.getvalue()
-                st.session_state.nome_final_xlsx = nome_final_xlsx
-                st.session_state.analise_concluida = True
-
-    # ==========================================
-    # --- RENDERIZAÇÃO DAS ABAS ---
-    # ==========================================
-    if st.session_state.analise_concluida:
-        dfs_por_filial = st.session_state.dfs_por_filial
-        dash_qtd_comprar = st.session_state.dash_qtd_comprar
-        dash_qtd_transferida = st.session_state.dash_qtd_transferida
-        dash_itens_pico = st.session_state.dash_itens_pico
-        df_p = st.session_state.df_p
-        
-        tab1, tab2, tab3, tab4 = st.tabs([
-            "📊 Visão Geral", 
-            "🚨 Top Urgentes", 
-            "📦 Estoque Parado", 
-            "🔍 Prévia por Filial"
-        ])
-        
-        with tab1:
-            st.subheader("Indicadores de Desempenho")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🛒 Volume de Compra (un.)", f"{int(dash_qtd_comprar)}")
-            c2.metric("🔄 Economia Estimada (un.)", f"{int(dash_qtd_transferida)}")
-            c3.metric("⚠️ Picos de vendas", f"{int(dash_itens_pico)}")
-            
-            if not df_p.empty:
-                f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().idxmax()
-            else:
-                f_p = "Nenhuma"
-            c4.metric("📦 Maior Estoque Parado", f_p)
-            
-            st.success("✅ Inteligência processada com sucesso! O seu ficheiro Excel está pronto.")
-            st.download_button(
-                label="📥 Descarregar Relatório Inteligente (Excel)", 
-                data=st.session_state.excel_data, 
-                file_name=st.session_state.nome_final_xlsx, 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-
-        with tab2:
-            st.subheader("Prioridade Máxima (Top 15)")
-            df_all = pd.concat(dfs_por_filial.values())
-            top_compra = df_all[df_all['SUGESTAO COMPRA'] > 0].sort_values(
-                by='SUGESTAO COMPRA', ascending=False
-            ).head(15)
-            cols_view = ['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'SUGESTAO COMPRA', 'FORNECEDOR']
-            st.dataframe(top_compra[cols_view], use_container_width=True)
-
-        with tab3:
-            st.subheader("Distribuição de Estoque Excedente")
-            if not df_p.empty:
-                grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().reset_index()
-                fig = px.bar(
-                    grafico_dados, 
-                    x='FILIAL_NOME', 
-                    y='ESTOQUE_DISPONIVEL', 
-                    title="Volume de Estoque Acima do Limite de Giro", 
-                    color='ESTOQUE_DISPONIVEL', 
-                    color_continuous_scale='Reds'
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else: 
-                st.info("Nenhum stock crítico detetado com base nos parâmetros atuais.")
-
-        with tab4:
-            st.subheader("Prévia Colorida dos Dados")
-            sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
-            
-            df_view = dfs_por_filial[sel_f].copy()
-            
-            def pintar_tabela(row):
-                cols = row.index
-                estilos = [''] * len(cols)
-                
-                def f_idx(nome): return cols.get_loc(nome) if nome in cols else -1
-                
-                i_parado = f_idx('ESTOQUE PARADO')
-                i_estoque = f_idx('ESTOQUE')
-                i_atipica = f_idx('VENDA_ATIPICA')
-                i_compra = f_idx('SUGESTAO COMPRA')
-                i_transf = f_idx('TRANS INTERNA')
-                i_comprada = f_idx('COMPRADA')
-                
-                if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
-                    estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
-                    if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
-                        
-                if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')):
-                    estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
-                    
-                if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0:
-                    estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
-                    
-                if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
-                    estilos[i_transf] = 'background-color: #C9DAF8; color: black;'
-                    
-                if i_comprada >= 0 and pd.to_numeric(row.get('COMPRADA', 0), errors='coerce') > 0:
-                    estilos[i_comprada] = 'background-color: #FCE5CD; color: black;'
-                    
-                return estilos
-
-            st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
-
-else: 
-    st.info("A aguardar documentos. Por favor, carregue os ficheiros PDF na barra lateral para iniciar.")
+                                f_regra = str(regra.get('FORNECEDOR', '')).
