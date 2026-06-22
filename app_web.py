@@ -132,11 +132,9 @@ def extrair_dados_pdf_web(pdf_file):
                             fornecedor_atual = match.group(1).strip()
                     else:
                         # --- EXCEÇÃO EXCLUSIVA YORK ---
-                        # Se o fornecedor for YORK e a linha começar com "***", removemos os asteriscos.
                         if "YORK" in fornecedor_atual.upper() and l.startswith("***"):
                             l = re.sub(r'^\*\*\*\s*', '', l)
                             
-                        # Agora o robô consegue testar e ler normalmente
                         if re.match(r'^\d{3,6}\s', l):
                             partes = l.split()
                             try:
@@ -234,136 +232,4 @@ if uploaded_files:
                         meses_globais = meses[:4]
             
             if not meses_globais: 
-                meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
-            
-            if todos_dados:
-                df_global = pd.concat(todos_dados).reset_index(drop=True)
-                df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
-                
-                vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
-                df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
-                
-                # --- GESTOR DE MEMÓRIA DE STOCK (Evita Gastos Duplos) ---
-                tracker_estoque = {}
-                for _, row in df_global.iterrows():
-                    f_nome = row['FILIAL_NOME']
-                    c = row['CODIGO']
-                    est = float(row['ESTOQUE'])
-                    med = float(row['MEDIA_SISTEMA'])
-                    
-                    excesso = est if med == 0 else max(0.0, est - (med * meta))
-                    tracker_estoque[(f_nome, c)] = {
-                        'EXCEDENTE': excesso,
-                        'MEDIA': med,
-                        'ESTOQUE_FINAL': est
-                    }
-
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    for nome_destino, df_dest in dfs_por_filial.items():
-                        
-                        def classificar_estoque_parado(row):
-                            if row['ESTOQUE'] > 0:
-                                if row['MEDIA_SISTEMA'] == 0: 
-                                    return "🛑 SIM"
-                                elif row['MESES_ESTOQUE'] > meses_parado: 
-                                    return "🛑 SIM"
-                            return ""
-                            
-                        df_dest['ESTOQUE PARADO'] = df_dest.apply(classificar_estoque_parado, axis=1)
-                        
-                        def processar_atipico(row):
-                            meses_v = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
-                            pico = max(meses_v)
-                            outros = meses_v.copy()
-                            outros.remove(pico)
-                            
-                            soma_outros = sum(outros)
-                            media_sem = soma_outros / 3 if soma_outros > 0 else 0
-                            
-                            media_sis = row['MEDIA_SISTEMA']
-                            if media_sis > 0 and media_sem > 0:
-                                base_comp = min(media_sis, media_sem)
-                            elif media_sem > 0:
-                                base_comp = media_sem
-                            else:
-                                base_comp = media_sis
-                                
-                            if base_comp > 0 and pico >= (base_comp * fator_pico) and pico >= 30: 
-                                return "⚠️ SIM", round(media_sem, 2)
-                            elif base_comp == 0 and pico >= 30: 
-                                return "⚠️ SIM", 0.0
-                                
-                            return "Não", media_sis
-
-                        res_at = df_dest.apply(processar_atipico, axis=1)
-                        df_dest['VENDA_ATIPICA'] = [x[0] for x in res_at]
-                        df_dest['MEDIA_P_CALCULO'] = [x[1] for x in res_at]
-                        dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
-                        
-                        def calcular_log(row):
-                            cod = row['CODIGO']
-                            nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
-                            necessidade = nec_calc
-                            
-                            if necessidade > 0:
-                                opcoes = []
-                                for f_outra in dfs_por_filial.keys():
-                                    if f_outra == nome_destino: continue
-                                    chave = (f_outra, cod)
-                                    if chave in tracker_estoque and tracker_estoque[chave]['EXCEDENTE'] > 0:
-                                        opcoes.append({
-                                            'filial': f_outra,
-                                            'media': tracker_estoque[chave]['MEDIA'],
-                                            'excedente': tracker_estoque[chave]['EXCEDENTE']
-                                        })
-                                
-                                if opcoes:
-                                    opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
-                                    trans_item = []
-                                    nec_rest = necessidade
-                                    
-                                    for op in opcoes:
-                                        if nec_rest <= 0: break
-                                        
-                                        chave_ced = (op['filial'], cod)
-                                        sal_ced = tracker_estoque[chave_ced]['EXCEDENTE']
-                                        
-                                        if sal_ced <= 0: continue
-                                        
-                                        if nec_rest < 30 and sal_ced >= 30:
-                                            qtd_a_tirar = 30
-                                        else:
-                                            qtd_a_tirar = min(nec_rest, sal_ced)
-                                            
-                                        if qtd_a_tirar >= 30:
-                                            tracker_estoque[chave_ced]['EXCEDENTE'] -= qtd_a_tirar
-                                            tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
-                                            nec_rest -= qtd_a_tirar
-                                            
-                                            nome_ced = op['filial']
-                                            if 'RIBEIR' in nome_ced: apelido = 'RP'
-                                            elif 'LONDRINA' in nome_ced: apelido = 'Lon'
-                                            elif 'FRANCA' in nome_ced: apelido = 'Frc'
-                                            else: apelido = nome_ced
-                                                
-                                            trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
-                                            
-                                    if trans_item: 
-                                        return " | ".join(trans_item), round(max(0, nec_rest), 2)
-                                        
-                            return "0", round(max(0, necessidade), 2)
-
-                        res_log = df_dest.apply(calcular_log, axis=1)
-                        df_dest['TRANS INTERNA'] = [x[0] for x in res_log]
-                        sug_base = [x[1] for x in res_log]
-
-                        def aplicar_mult(row, sug):
-                            if sug <= 0: 
-                                return 0
-                                
-                            forn = str(row.get('FORNECEDOR', '')).upper()
-                            desc = str(row.get('DESCRICAO', '')).upper()
-                            
-                            for idx, regra in df_regras_editado.iterrows():
-                                f_regra = str(regra.get('FORNECEDOR', '')).
+                meses_glob
