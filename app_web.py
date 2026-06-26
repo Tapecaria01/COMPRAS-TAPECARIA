@@ -8,6 +8,7 @@ import plotly.express as px
 from io import BytesIO
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
+from openpyxl.formatting.rule import FormulaRule
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
@@ -246,7 +247,6 @@ if uploaded_files:
                             
                         tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est}
 
-                    # Novo método seguro de gerar Excel (sem "with") para não camuflar erros
                     output = BytesIO()
                     writer = pd.ExcelWriter(output, engine='openpyxl')
                     
@@ -260,7 +260,6 @@ if uploaded_files:
                                     return "🛑 SIM"
                             return ""
                             
-                        # Substituto 100% seguro para o 'apply' problemático
                         ep_list = []
                         for _, row in df_dest.iterrows():
                             ep_list.append(classificar_estoque_parado(row))
@@ -292,7 +291,6 @@ if uploaded_files:
                                 return "⚠️ SIM", 0.0
                             return "Não", media_sis
 
-                        # Substituto 100% seguro para o 'apply' problemático
                         va_list = []
                         mpc_list = []
                         for _, row in df_dest.iterrows():
@@ -358,7 +356,6 @@ if uploaded_files:
                                         return " | ".join(trans_item), round(max(0, nec_rest), 2)
                             return "0", round(max(0, necessidade), 2)
 
-                        # Substituto 100% seguro para o 'apply' problemático
                         ti_list = []
                         sug_list = []
                         for _, row in df_dest.iterrows():
@@ -422,14 +419,18 @@ if uploaded_files:
                         }
                         df_dest.rename(columns=renames, inplace=True)
                         
+                        # --- CRIAÇÃO DAS COLUNAS SECRETAS (COPIAS DA ORIGINAL) ---
+                        df_dest['ORIGINAL_SUGESTAO'] = df_dest['SUGESTAO COMPRA']
+                        df_dest['ORIGINAL_TRANS'] = df_dest['TRANS INTERNA']
+                        
                         cols_f = [
                             'CODIGO', 'DESCRICAO', 'EMB.', 
                             meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
                             'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 
-                            'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO'
+                            'SUGESTAO COMPRA', 'TRANS INTERNA', 'VENDA_ATIPICA', 'ESTOQUE PARADO',
+                            'ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS'
                         ]
                         
-                        # Remove caracteres inválidos do nome da aba para não estourar o Excel
                         sheet_n = re.sub(r'[\\/*?:\[\]]', '', nome_destino)[:30]
                         df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
                         
@@ -441,6 +442,15 @@ if uploaded_files:
                         
                         ws.auto_filter.ref = ws.dimensions
                         ws.freeze_panes = 'A2'
+                        
+                        # Esconde as colunas secretas
+                        idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
+                        idx_transf = cols_f.index('TRANS INTERNA') + 1
+                        idx_orig_sug = cols_f.index('ORIGINAL_SUGESTAO') + 1
+                        idx_orig_trans = cols_f.index('ORIGINAL_TRANS') + 1
+                        
+                        ws.column_dimensions[get_column_letter(idx_orig_sug)].hidden = True
+                        ws.column_dimensions[get_column_letter(idx_orig_trans)].hidden = True
                         
                         for col_idx, col in enumerate(ws.columns, 1):
                             col_letter = get_column_letter(col_idx)
@@ -468,8 +478,6 @@ if uploaded_files:
                         
                         idx_estoque = cols_f.index('ESTOQUE') + 1 
                         idx_comprada = cols_f.index('COMPRADA') + 1 
-                        idx_compra = cols_f.index('SUGESTAO COMPRA') + 1
-                        idx_transf = cols_f.index('TRANS INTERNA') + 1
                         idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
                         idx_parado = cols_f.index('ESTOQUE PARADO') + 1
                         
@@ -495,7 +503,21 @@ if uploaded_files:
                                 ws.cell(r, idx_parado).fill = c_red
                                 ws.cell(r, idx_estoque).fill = c_red
 
-                    # Fecha o ficheiro Excel corretamente
+                        # --- APLICAÇÃO DO DETETOR DE EDIÇÃO (AMARELO) ---
+                        max_row = len(ws['A'])
+                        if max_row >= 2:
+                            yellow_cf_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+                            
+                            col_sug = get_column_letter(idx_compra)
+                            col_orig_sug = get_column_letter(idx_orig_sug)
+                            rule_sug = FormulaRule(formula=[f"${col_sug}2<>${col_orig_sug}2"], stopIfTrue=False, fill=yellow_cf_fill)
+                            ws.conditional_formatting.add(f"{col_sug}2:{col_sug}{max_row}", rule_sug)
+                            
+                            col_trans = get_column_letter(idx_transf)
+                            col_orig_trans = get_column_letter(idx_orig_trans)
+                            rule_trans = FormulaRule(formula=[f"${col_trans}2<>${col_orig_trans}2"], stopIfTrue=False, fill=yellow_cf_fill)
+                            ws.conditional_formatting.add(f"{col_trans}2:{col_trans}{max_row}", rule_trans)
+
                     writer.close()
 
                     def get_estoque_final(row):
@@ -524,7 +546,6 @@ if uploaded_files:
                     st.session_state.analise_concluida = True
 
                 except Exception as e:
-                    # Agora o erro real será forçado a aparecer na tela
                     st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
                     st.code(traceback.format_exc())
 
