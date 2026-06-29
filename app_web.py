@@ -98,8 +98,7 @@ def limpar_v(valor):
     except: 
         return 0.0
 
-# --- MELHORIA 1: CACHE INTELIGENTE DE PDF ---
-# Guarda a extração pesada na memória para o recálculo ser instantâneo
+# --- CACHE INTELIGENTE DE PDF ---
 @st.cache_data(show_spinner=False)
 def extrair_dados_pdf_web(pdf_file):
     dados = []
@@ -129,9 +128,11 @@ def extrair_dados_pdf_web(pdf_file):
                         if match: 
                             fornecedor_atual = match.group(1).strip()
                     else:
-                        if "YORK" in fornecedor_atual.upper() and l.startswith("***"):
-                            l = re.sub(r'^\*\*\*\s*', '', l)
+                        # --- REMOÇÃO UNIVERSAL DE ASTERISCOS ---
+                        # Se a linha começar com qualquer quantidade de asteriscos, apaga-os da frente
+                        l = re.sub(r'^\*+\s*', '', l)
                             
+                        # Continua a leitura normal do código numérico
                         if re.match(r'^\d{3,6}\s', l):
                             partes = l.split()
                             try:
@@ -283,7 +284,7 @@ if uploaded_files:
                 
                 dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
                 
-                # --- MELHORIA 3: DETEÇÃO DE RUPTURA CRÍTICA ---
+                # --- DETEÇÃO DE RUPTURA CRÍTICA ---
                 def classificar_ruptura(row):
                     if float(row['ESTOQUE']) == 0 and float(row['COMPRADA']) == 0 and float(row['MEDIA_P_CALCULO']) > 0:
                         return "🚨 CRÍTICA"
@@ -435,7 +436,7 @@ if uploaded_files:
                 cl = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
                 cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
                 c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
-                c_rup = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid") # Vermelho Ruptura
+                c_rup = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid") 
                 
                 idx_estoque = cols_f.index('ESTOQUE') + 1 
                 idx_comprada = cols_f.index('COMPRADA') + 1 
@@ -526,7 +527,6 @@ if uploaded_files:
         with tab2:
             df_all = pd.concat(dfs_por_filial.values())
             
-            # BLOCO EXCLUSIVO DE RUPTURA CRÍTICA
             df_rupturas = df_all[df_all['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"].sort_values(by='MEDIA', ascending=False)
             if not df_rupturas.empty:
                 st.error("🚨 PRODUTOS EM RUPTURA CRÍTICA DETECTADOS (Estoque Zero + Sem Pedido em Andamento)")
