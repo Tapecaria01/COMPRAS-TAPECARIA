@@ -129,7 +129,6 @@ def extrair_dados_pdf_web(pdf_file):
                             fornecedor_atual = match.group(1).strip()
                     else:
                         # --- REMOÇÃO UNIVERSAL DE ASTERISCOS ---
-                        # Se a linha começar com qualquer quantidade de asteriscos, apaga-os da frente
                         l = re.sub(r'^\*+\s*', '', l)
                             
                         # Continua a leitura normal do código numérico
@@ -235,7 +234,11 @@ if uploaded_files:
                 c = row['CODIGO']
                 est = float(row['ESTOQUE'])
                 med = float(row['MEDIA_SISTEMA'])
-                excesso = est if med == 0 else max(0.0, est - (med * meta))
+                
+                # CORREÇÃO: Garante a retenção de segurança de 3 meses, exceto se Média == 0
+                meses_retencao_seguranca = 3
+                excesso = est if med == 0 else max(0.0, est - (med * meses_retencao_seguranca))
+                
                 tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est}
 
             output = BytesIO()
@@ -296,6 +299,7 @@ if uploaded_files:
                 df_dest['RUPTURA CRÍTICA'] = rupt_list
                 dash_itens_ruptura += len(df_dest[df_dest['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"])
                 
+                # --- CÁLCULO LOGÍSTICO COM DETEÇÃO DE "ESTOQUE MORTO" ---
                 def calcular_log(row):
                     cod = row['CODIGO']
                     nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
@@ -313,6 +317,7 @@ if uploaded_files:
                             opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
                             trans_item = []
                             nec_rest = necessidade
+                            tem_morto = False # NOVO: Sinalizador de transferência de estoque morto
                             
                             for op in opcoes:
                                 if nec_rest <= 0: break
@@ -328,6 +333,10 @@ if uploaded_files:
                                     tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
                                     nec_rest -= qtd_a_tirar
                                     
+                                    # Se a origem tinha Média Zero, ativa a flag!
+                                    if tracker_estoque[chave_ced]['MEDIA'] == 0:
+                                        tem_morto = True
+                                    
                                     nome_ced = op['filial']
                                     if 'RIBEIR' in nome_ced: apelido = 'RP'
                                     elif 'LONDRINA' in nome_ced: apelido = 'Lon'
@@ -336,16 +345,20 @@ if uploaded_files:
                                         
                                     trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
                                     
-                            if trans_item: return " | ".join(trans_item), round(max(0, nec_rest), 2)
-                    return "0", round(max(0, necessidade), 2)
+                            if trans_item: return " | ".join(trans_item), round(max(0, nec_rest), 2), tem_morto
+                    return "0", round(max(0, necessidade), 2), False
 
                 ti_list = []
                 sug_list = []
+                tm_list = [] # NOVA LISTA: Guardará o sinalizador de transferência de estoque morto
                 for _, row in df_dest.iterrows():
-                    ti, sug = calcular_log(row)
+                    ti, sug, tm = calcular_log(row)
                     ti_list.append(ti)
                     sug_list.append(sug)
+                    tm_list.append(tm)
+                    
                 df_dest['TRANS INTERNA'] = ti_list
+                df_dest['TRANS_MORTA'] = tm_list
                 sug_base = sug_list
 
                 def aplicar_mult(row, sug):
@@ -392,7 +405,7 @@ if uploaded_files:
                 cols_f = [
                     'CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
                     'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 
-                    'VENDA_ATIPICA', 'ESTOQUE PARADO', 'RUPTURA CRÍTICA', 'ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS'
+                    'VENDA_ATIPICA', 'ESTOQUE PARADO', 'RUPTURA CRÍTICA', 'ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA'
                 ]
                 
                 sheet_n = re.sub(r'[\\/*?:\[\]]', '', nome_destino)[:30]
@@ -411,9 +424,11 @@ if uploaded_files:
                 idx_transf = cols_f.index('TRANS INTERNA') + 1
                 idx_orig_sug = cols_f.index('ORIGINAL_SUGESTAO') + 1
                 idx_orig_trans = cols_f.index('ORIGINAL_TRANS') + 1
+                idx_trans_morta = cols_f.index('TRANS_MORTA') + 1
                 
                 ws.column_dimensions[get_column_letter(idx_orig_sug)].hidden = True
                 ws.column_dimensions[get_column_letter(idx_orig_trans)].hidden = True
+                ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True # Oculta a coluna de controle visual
                 
                 for col_idx, col in enumerate(ws.columns, 1):
                     col_letter = get_column_letter(col_idx)
@@ -438,6 +453,11 @@ if uploaded_files:
                 c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
                 c_rup = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid") 
                 
+                # --- NOVA COR: LARANJA ESCURO (Ênfase 2, Escuro 25%) ---
+                c_laranja = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
+                font_branca = Font(color="FFFFFF", bold=True)
+                font_preta = Font(color="000000", bold=False)
+                
                 idx_estoque = cols_f.index('ESTOQUE') + 1 
                 idx_comprada = cols_f.index('COMPRADA') + 1 
                 idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
@@ -447,7 +467,19 @@ if uploaded_files:
                 for r in range(2, len(ws['A']) + 1):
                     if limpar_v(ws.cell(r, idx_comprada).value) > 0: ws.cell(r, idx_comprada).fill = cl 
                     if limpar_v(ws.cell(r, idx_compra).value) > 0: ws.cell(r, idx_compra).fill = cv 
-                    if str(ws.cell(r, idx_transf).value) not in ["0", "None"]: ws.cell(r, idx_transf).fill = ca 
+                    
+                    # Checagem de Transferência Ativa
+                    val_transf = str(ws.cell(r, idx_transf).value)
+                    is_morta = ws.cell(r, idx_trans_morta).value
+                    
+                    if val_transf not in ["0", "None"]:
+                        if is_morta: 
+                            ws.cell(r, idx_transf).fill = c_laranja # Aplica Laranja
+                            ws.cell(r, idx_transf).font = font_branca # Fonte Branca para dar contraste
+                        else:
+                            ws.cell(r, idx_transf).fill = ca # Aplica Azul Claro padrão
+                            ws.cell(r, idx_transf).font = font_preta
+                            
                     if "⚠️ SIM" in str(ws.cell(r, idx_atipica).value): ws.cell(r, idx_atipica).fill = cy 
                     
                     if "🛑 SIM" in str(ws.cell(r, idx_parado).value): 
@@ -506,78 +538,3 @@ if uploaded_files:
         dash_itens_pico = st.session_state.dash_itens_pico
         dash_itens_ruptura = st.session_state.dash_itens_ruptura
         df_p = st.session_state.df_p
-        
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Visão Geral", "🚨 Top Urgentes", "📦 Estoque Parado", "🔍 Prévia por Filial"])
-        
-        with tab1:
-            st.subheader("Indicadores de Desempenho")
-            c1, c2, c3, c4, c5 = st.columns(5)
-            c1.metric("🛒 Sugestão de Compra", f"{int(dash_qtd_comprar)} un.")
-            c2.metric("🔄 Economia (Transf.)", f"{int(dash_qtd_transferida)} un.")
-            c3.metric("⚠️ Picos de Vendas", f"{int(dash_itens_pico)} itens")
-            c4.metric("🚨 Rupturas Críticas", f"{int(dash_itens_ruptura)} itens")
-            
-            if not df_p.empty: f_p = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().idxmax()
-            else: f_p = "Nenhuma"
-            c5.metric("📦 Maior Estoque Parado", f_p)
-            
-            st.success("✅ Inteligência processada com sucesso! O seu ficheiro Excel está pronto.")
-            st.download_button(label="📥 Descarregar Relatório Inteligente (Excel)", data=st.session_state.excel_data, file_name=st.session_state.nome_final_xlsx, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
-
-        with tab2:
-            df_all = pd.concat(dfs_por_filial.values())
-            
-            df_rupturas = df_all[df_all['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"].sort_values(by='MEDIA', ascending=False)
-            if not df_rupturas.empty:
-                st.error("🚨 PRODUTOS EM RUPTURA CRÍTICA DETECTADOS (Estoque Zero + Sem Pedido em Andamento)")
-                st.dataframe(df_rupturas[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'MEDIA', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
-            else:
-                st.success("✅ Nenhuma ruptura crítica absoluta detectada nas filiais!")
-                
-            st.markdown("<br><hr>", unsafe_allow_html=True)
-            st.subheader("🛒 Maior Volume de Compra Sugerido (Top 15)")
-            top_compra = df_all[df_all['SUGESTAO COMPRA'] > 0].sort_values(by='SUGESTAO COMPRA', ascending=False).head(15)
-            st.dataframe(top_compra[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
-
-        with tab3:
-            st.subheader("Distribuição de Estoque Excedente")
-            if not df_p.empty:
-                grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().reset_index()
-                fig = px.bar(grafico_dados, x='FILIAL_NOME', y='ESTOQUE_DISPONIVEL', title="Volume de Estoque Acima do Limite de Giro", color='ESTOQUE_DISPONIVEL', color_continuous_scale='Reds')
-                st.plotly_chart(fig, use_container_width=True)
-            else: st.info("Nenhum stock crítico detetado com base nos parâmetros atuais.")
-
-        with tab4:
-            st.subheader("Prévia Colorida dos Dados")
-            sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
-            df_view = dfs_por_filial[sel_f].copy()
-            
-            def pintar_tabela(row):
-                cols = row.index
-                estilos = [''] * len(cols)
-                def f_idx(nome): return cols.get_loc(nome) if nome in cols else -1
-                
-                i_parado = f_idx('ESTOQUE PARADO')
-                i_estoque = f_idx('ESTOQUE')
-                i_atipica = f_idx('VENDA_ATIPICA')
-                i_compra = f_idx('SUGESTAO COMPRA')
-                i_transf = f_idx('TRANS INTERNA')
-                i_comprada = f_idx('COMPRADA')
-                i_ruptura = f_idx('RUPTURA CRÍTICA')
-                
-                if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
-                    estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
-                    if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
-                if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')): estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
-                if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0: estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
-                if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']: estilos[i_transf] = 'background-color: #C9DAF8; color: black;'
-                if i_comprada >= 0 and pd.to_numeric(row.get('COMPRADA', 0), errors='coerce') > 0: estilos[i_comprada] = 'background-color: #FCE5CD; color: black;'
-                if i_ruptura >= 0 and '🚨 CRÍTICA' in str(row.get('RUPTURA CRÍTICA', '')):
-                    estilos[i_ruptura] = 'background-color: #FFD2D2; color: black; font-weight: bold;'
-                    if i_estoque >= 0: estilos[i_estoque] = 'background-color: #FFD2D2; color: black;'
-                return estilos
-
-            st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
-
-else: 
-    st.info("A aguardar documentos. Por favor, carregue os ficheiros PDF na barra lateral para iniciar.")
