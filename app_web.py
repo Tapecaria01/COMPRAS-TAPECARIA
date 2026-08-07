@@ -173,17 +173,6 @@ with st.sidebar:
     uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
     st.markdown("---")
     
-    with st.expander("📈 Modelagem Preditiva (Fase 2)"):
-        st.caption("Atribua pesos aos meses para calcular a Média Móvel Ponderada.")
-        c1, c2, c3, c4 = st.columns(4)
-        peso_m1 = c1.number_input("Mês 1", value=1.0, step=0.5, help="Mês mais antigo")
-        peso_m2 = c2.number_input("Mês 2", value=1.5, step=0.5)
-        peso_m3 = c3.number_input("Mês 3", value=2.5, step=0.5)
-        peso_m4 = c4.number_input("Mês 4", value=5.0, step=0.5, help="Mês mais recente")
-        soma_pesos = peso_m1 + peso_m2 + peso_m3 + peso_m4
-        if soma_pesos == 0:
-            st.error("A soma dos pesos não pode ser zero!")
-
     with st.expander("⚙️ Configurações Avançadas"):
         meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
         meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
@@ -213,7 +202,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 # === PROCESSAMENTO AUTOMÁTICO ("PISCOU, MUDOU") ===
 # ====================================================
 if uploaded_files:
-    with st.spinner("A executar Inteligência de Compras e Modelagem Preditiva. Isto pode levar até 2 minutos... 🚀"):
+    with st.spinner("A executar Inteligência de Compras e cruzar dados. Isto pode levar até 2 minutos... 🚀"):
         dfs_por_filial = {}
         todos_dados = []
         meses_globais = []
@@ -243,17 +232,14 @@ if uploaded_files:
                 vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
                 
-                # NOVO CÁLCULO: MÉDIA PREDITIVA (Média Móvel Ponderada)
-                df_global['MEDIA_PREDITIVA'] = (df_global['MES_1'] * peso_m1 + df_global['MES_2'] * peso_m2 + df_global['MES_3'] * peso_m3 + df_global['MES_4'] * peso_m4) / soma_pesos if soma_pesos > 0 else df_global['MEDIA_SISTEMA']
-                
                 tracker_estoque = {}
                 for _, row in df_global.iterrows():
                     f_nome = row['FILIAL_NOME']
                     c = row['CODIGO']
                     est = float(row['ESTOQUE'])
-                    # O excesso agora baseia-se na Média Preditiva para ser mais inteligente
-                    med = float(row['MEDIA_PREDITIVA']) 
+                    med = float(row['MEDIA_SISTEMA'])
                     
+                    # CORREÇÃO: Garante a retenção de segurança de 3 meses, exceto se Média == 0
                     meses_retencao_seguranca = 3
                     excesso = est if med == 0 else max(0.0, est - (med * meses_retencao_seguranca))
                     
@@ -264,12 +250,9 @@ if uploaded_files:
                 
                 for nome_destino, df_dest in dfs_por_filial.items():
                     
-                    # Calcula a preditiva localmente para cada filial também
-                    df_dest['MEDIA_PREDITIVA'] = (df_dest['MES_1'] * peso_m1 + df_dest['MES_2'] * peso_m2 + df_dest['MES_3'] * peso_m3 + df_dest['MES_4'] * peso_m4) / soma_pesos if soma_pesos > 0 else df_dest['MEDIA_SISTEMA']
-                    
                     def classificar_estoque_parado(row):
                         if row['ESTOQUE'] > 0:
-                            if row['MEDIA_PREDITIVA'] == 0: return "🛑 SIM"
+                            if row['MEDIA_SISTEMA'] == 0: return "🛑 SIM"
                             elif row['MESES_ESTOQUE'] > meses_parado: return "🛑 SIM"
                         return ""
                         
@@ -286,7 +269,7 @@ if uploaded_files:
                         soma_outros = sum(outros)
                         media_sem = soma_outros / 3 if soma_outros > 0 else 0
                         
-                        media_sis = row['MEDIA_PREDITIVA'] # Usa a nova média preditiva
+                        media_sis = row['MEDIA_SISTEMA']
                         if media_sis > 0 and media_sem > 0: base_comp = min(media_sis, media_sem)
                         elif media_sem > 0: base_comp = media_sem
                         else: base_comp = media_sis
@@ -308,6 +291,7 @@ if uploaded_files:
                     
                     dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
                     
+                    # --- DETEÇÃO DE RUPTURA CRÍTICA ---
                     def classificar_ruptura(row):
                         if float(row['ESTOQUE']) == 0 and float(row['COMPRADA']) == 0 and float(row['MEDIA_P_CALCULO']) > 0:
                             return "🚨 CRÍTICA"
@@ -319,6 +303,7 @@ if uploaded_files:
                     df_dest['RUPTURA CRÍTICA'] = rupt_list
                     dash_itens_ruptura += len(df_dest[df_dest['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"])
                     
+                    # --- CÁLCULO LOGÍSTICO COM DETEÇÃO DE "ESTOQUE MORTO" ---
                     def calcular_log(row):
                         cod = row['CODIGO']
                         nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
@@ -336,7 +321,7 @@ if uploaded_files:
                                 opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
                                 trans_item = []
                                 nec_rest = necessidade
-                                tem_morto = False 
+                                tem_morto = False # NOVO: Sinalizador de transferência de estoque morto
                                 
                                 for op in opcoes:
                                     if nec_rest <= 0: break
@@ -352,6 +337,7 @@ if uploaded_files:
                                         tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
                                         nec_rest -= qtd_a_tirar
                                         
+                                        # Se a origem tinha Média Zero, ativa a flag!
                                         if tracker_estoque[chave_ced]['MEDIA'] == 0:
                                             tem_morto = True
                                         
@@ -368,7 +354,7 @@ if uploaded_files:
 
                     ti_list = []
                     sug_list = []
-                    tm_list = [] 
+                    tm_list = [] # NOVA LISTA: Guardará o sinalizador de transferência de estoque morto
                     for _, row in df_dest.iterrows():
                         ti, sug, tm = calcular_log(row)
                         ti_list.append(ti)
@@ -414,8 +400,7 @@ if uploaded_files:
                         
                     dash_qtd_transferida += df_dest['TRANS INTERNA'].apply(extrair_n).sum()
                     
-                    # Renomeia as colunas, mapeando a nova Média Preditiva para ficar bonito no Excel
-                    renames = {'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 'MES_3': meses_globais[2], 'MES_4': meses_globais[3], 'MEDIA_SISTEMA': 'MÉDIA SISTEMA', 'MEDIA_PREDITIVA': 'MÉDIA PREDITIVA', 'MESES_ESTOQUE': 'MESES'}
+                    renames = {'MES_1': meses_globais[0], 'MES_2': meses_globais[1], 'MES_3': meses_globais[2], 'MES_4': meses_globais[3], 'MEDIA_SISTEMA': 'MEDIA', 'MESES_ESTOQUE': 'MESES'}
                     df_dest.rename(columns=renames, inplace=True)
                     
                     df_dest['ORIGINAL_SUGESTAO'] = df_dest['SUGESTAO COMPRA']
@@ -423,13 +408,11 @@ if uploaded_files:
                     
                     cols_f = [
                         'CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
-                        'MÉDIA SISTEMA', 'MÉDIA PREDITIVA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 
+                        'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 
                         'VENDA_ATIPICA', 'ESTOQUE PARADO', 'RUPTURA CRÍTICA', 'ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA'
                     ]
                     
                     sheet_n = re.sub(r'[\\/*?:\[\]]', '', nome_destino)[:30]
-                    # Arredonda a média preditiva visualmente para ficar mais amigável na planilha
-                    df_dest['MÉDIA PREDITIVA'] = df_dest['MÉDIA PREDITIVA'].round(2)
                     df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
                     
                     ws = writer.sheets[sheet_n]
@@ -449,7 +432,7 @@ if uploaded_files:
                     
                     ws.column_dimensions[get_column_letter(idx_orig_sug)].hidden = True
                     ws.column_dimensions[get_column_letter(idx_orig_trans)].hidden = True
-                    ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True 
+                    ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True # Oculta a coluna de controle visual
                     
                     for col_idx, col in enumerate(ws.columns, 1):
                         col_letter = get_column_letter(col_idx)
@@ -474,6 +457,7 @@ if uploaded_files:
                     c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
                     c_rup = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid") 
                     
+                    # --- NOVA COR: LARANJA ESCURO (Ênfase 2, Escuro 25%) ---
                     c_laranja = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
                     font_branca = Font(color="FFFFFF", bold=True)
                     font_preta = Font(color="000000", bold=False)
@@ -488,15 +472,16 @@ if uploaded_files:
                         if limpar_v(ws.cell(r, idx_comprada).value) > 0: ws.cell(r, idx_comprada).fill = cl 
                         if limpar_v(ws.cell(r, idx_compra).value) > 0: ws.cell(r, idx_compra).fill = cv 
                         
+                        # Checagem de Transferência Ativa
                         val_transf = str(ws.cell(r, idx_transf).value)
                         is_morta = ws.cell(r, idx_trans_morta).value
                         
                         if val_transf not in ["0", "None"]:
                             if is_morta: 
-                                ws.cell(r, idx_transf).fill = c_laranja 
-                                ws.cell(r, idx_transf).font = font_branca 
+                                ws.cell(r, idx_transf).fill = c_laranja # Aplica Laranja
+                                ws.cell(r, idx_transf).font = font_branca # Fonte Branca para dar contraste
                             else:
-                                ws.cell(r, idx_transf).fill = ca 
+                                ws.cell(r, idx_transf).fill = ca # Aplica Azul Claro padrão
                                 ws.cell(r, idx_transf).font = font_preta
                                 
                         if "⚠️ SIM" in str(ws.cell(r, idx_atipica).value): ws.cell(r, idx_atipica).fill = cy 
@@ -531,7 +516,7 @@ if uploaded_files:
                 df_global['ESTOQUE_DISPONIVEL'] = edf_list
 
                 filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
-                filtro_p2 = df_global['MEDIA_PREDITIVA'] == 0
+                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
                 filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
                 df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
                 
@@ -578,10 +563,10 @@ if st.session_state.get("analise_concluida", False):
     with tab2:
         df_all = pd.concat(dfs_por_filial.values())
         
-        df_rupturas = df_all[df_all['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"].sort_values(by='MÉDIA PREDITIVA', ascending=False)
+        df_rupturas = df_all[df_all['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"].sort_values(by='MEDIA', ascending=False)
         if not df_rupturas.empty:
             st.error("🚨 PRODUTOS EM RUPTURA CRÍTICA DETECTADOS (Estoque Zero + Sem Pedido em Andamento)")
-            st.dataframe(df_rupturas[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'MÉDIA PREDITIVA', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
+            st.dataframe(df_rupturas[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'MEDIA', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
         else:
             st.success("✅ Nenhuma ruptura crítica absoluta detectada nas filiais!")
             
@@ -623,6 +608,7 @@ if st.session_state.get("analise_concluida", False):
             if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')): estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
             if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0: estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
             
+            # Regra visual atualizada para Transferências
             if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
                 if i_trans_morta >= 0 and row.get('TRANS_MORTA') == True:
                     estilos[i_transf] = 'background-color: #C55A11; color: white; font-weight: bold;'
@@ -635,6 +621,7 @@ if st.session_state.get("analise_concluida", False):
                 if i_estoque >= 0: estilos[i_estoque] = 'background-color: #FFD2D2; color: black;'
             return estilos
 
+        # Ocultamos colunas temporárias na visualização WEB para ficar limpo
         st.dataframe(df_view.drop(columns=['ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA'], errors='ignore').style.apply(pintar_tabela, axis=1), use_container_width=True)
 
 else: 
