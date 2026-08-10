@@ -523,34 +523,34 @@ if uploaded_files:
                         col_orig_trans = get_column_letter(idx_orig_trans)
                         ws.conditional_formatting.add(f"{col_trans}2:{col_trans}{max_row}", FormulaRule(formula=[f"${col_trans}2<>${col_orig_trans}2"], stopIfTrue=False, fill=yellow_cf_fill))
 
-            writer.close()
+                writer.close()
 
-            def get_estoque_final(row):
-                chave = (row['FILIAL_NOME'], row['CODIGO'])
-                return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
+                def get_estoque_final(row):
+                    chave = (row['FILIAL_NOME'], row['CODIGO'])
+                    return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
+                    
+                edf_list = []
+                for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
+                df_global['ESTOQUE_DISPONIVEL'] = edf_list
+
+                filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
+                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
+                filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
+                df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
                 
-            edf_list = []
-            for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
-            df_global['ESTOQUE_DISPONIVEL'] = edf_list
+                st.session_state.dfs_por_filial = dfs_por_filial
+                st.session_state.dash_qtd_comprar = dash_qtd_comprar
+                st.session_state.dash_qtd_transferida = dash_qtd_transferida
+                st.session_state.dash_itens_pico = dash_itens_pico
+                st.session_state.dash_itens_ruptura = dash_itens_ruptura
+                st.session_state.df_p = df_p
+                st.session_state.excel_data = output.getvalue()
+                st.session_state.nome_final_xlsx = nome_final_xlsx
+                st.session_state.analise_concluida = True
 
-            filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
-            filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
-            filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
-            df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
-            
-            st.session_state.dfs_por_filial = dfs_por_filial
-            st.session_state.dash_qtd_comprar = dash_qtd_comprar
-            st.session_state.dash_qtd_transferida = dash_qtd_transferida
-            st.session_state.dash_itens_pico = dash_itens_pico
-            st.session_state.dash_itens_ruptura = dash_itens_ruptura
-            st.session_state.df_p = df_p
-            st.session_state.excel_data = output.getvalue()
-            st.session_state.nome_final_xlsx = nome_final_xlsx
-            st.session_state.analise_concluida = True
-
-        except Exception as e:
-            st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
-            st.code(traceback.format_exc())
+            except Exception as e:
+                st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
+                st.code(traceback.format_exc())
 
 # --- RENDERIZAÇÃO DAS ABAS ---
 if st.session_state.get("analise_concluida", False):
