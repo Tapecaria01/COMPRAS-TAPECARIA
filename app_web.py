@@ -207,17 +207,22 @@ with st.sidebar:
         nova_palavra = st.text_input("Palavra-Chave (Opcional)", placeholder="Deixe vazio se for para todos os itens...")
         
         if st.button("Gravar Fornecedor", use_container_width=True):
-            if novo_fornecedor.strip() == "":
+            fornecedor_limpo = novo_fornecedor.upper().strip()
+            
+            # --- VALIDAÇÃO DE DUPLICIDADE ---
+            if fornecedor_limpo == "":
                 st.warning("O nome do fornecedor é obrigatório.")
+            elif fornecedor_limpo in st.session_state.df_regras['FORNECEDOR'].astype(str).str.upper().str.strip().values:
+                st.error(f"⚠️ Atenção: O fornecedor '{fornecedor_limpo}' já existe na lista!")
             else:
                 nova_linha = pd.DataFrame([{
-                    "FORNECEDOR": novo_fornecedor.upper().strip(), 
+                    "FORNECEDOR": fornecedor_limpo, 
                     "MULTIPLO": int(novo_multiplo), 
                     "TOLERANCIA": int(nova_tolerancia), 
                     "PALAVRA_CHAVE": nova_palavra.upper().strip()
                 }])
                 st.session_state.df_regras = pd.concat([st.session_state.df_regras, nova_linha], ignore_index=True)
-                st.success(f"✅ {novo_fornecedor.upper()} adicionado!")
+                st.success(f"✅ {fornecedor_limpo} adicionado com sucesso!")
                 st.rerun()
                 
         st.markdown("---")
@@ -337,7 +342,6 @@ if uploaded_files:
                     
                     dash_itens_pico += len(df_dest[df_dest['VENDA_ATIPICA'] == "⚠️ SIM"])
                     
-                    # --- DETEÇÃO DE RUPTURA CRÍTICA ---
                     def classificar_ruptura(row):
                         if float(row['ESTOQUE']) == 0 and float(row['COMPRADA']) == 0 and float(row['MEDIA_P_CALCULO']) > 0:
                             return "🚨 CRÍTICA"
@@ -349,7 +353,6 @@ if uploaded_files:
                     df_dest['RUPTURA CRÍTICA'] = rupt_list
                     dash_itens_ruptura += len(df_dest[df_dest['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"])
                     
-                    # --- CÁLCULO LOGÍSTICO COM DETEÇÃO DE "ESTOQUE MORTO" ---
                     def calcular_log(row):
                         cod = row['CODIGO']
                         nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
