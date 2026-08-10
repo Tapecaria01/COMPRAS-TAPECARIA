@@ -417,7 +417,6 @@ if uploaded_files:
                         
                         for idx, regra in df_regras_editado.iterrows():
                             f_regra = str(regra.get('FORNECEDOR', '')).upper()
-                            # Prevenção extra para o caso de algum valor nulo ter ficado no DataFrame
                             if not f_regra or f_regra == "NAN" or f_regra == "NONE":
                                 continue
                                 
@@ -506,7 +505,6 @@ if uploaded_files:
                     c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
                     c_rup = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid") 
                     
-                    # --- NOVA COR: LARANJA ESCURO (Ênfase 2, Escuro 25%) ---
                     c_laranja = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
                     font_branca = Font(color="FFFFFF", bold=True)
                     font_preta = Font(color="000000", bold=False)
@@ -521,7 +519,6 @@ if uploaded_files:
                         if limpar_v(ws.cell(r, idx_comprada).value) > 0: ws.cell(r, idx_comprada).fill = cl 
                         if limpar_v(ws.cell(r, idx_compra).value) > 0: ws.cell(r, idx_compra).fill = cv 
                         
-                        # Checagem de Transferência Ativa
                         val_transf = str(ws.cell(r, idx_transf).value)
                         is_morta = ws.cell(r, idx_trans_morta).value
                         
@@ -554,34 +551,34 @@ if uploaded_files:
                         col_orig_trans = get_column_letter(idx_orig_trans)
                         ws.conditional_formatting.add(f"{col_trans}2:{col_trans}{max_row}", FormulaRule(formula=[f"${col_trans}2<>${col_orig_trans}2"], stopIfTrue=False, fill=yellow_cf_fill))
 
-            writer.close()
+                writer.close()
 
-            def get_estoque_final(row):
-                chave = (row['FILIAL_NOME'], row['CODIGO'])
-                return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
+                def get_estoque_final(row):
+                    chave = (row['FILIAL_NOME'], row['CODIGO'])
+                    return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
+                    
+                edf_list = []
+                for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
+                df_global['ESTOQUE_DISPONIVEL'] = edf_list
+
+                filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
+                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
+                filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
+                df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
                 
-            edf_list = []
-            for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
-            df_global['ESTOQUE_DISPONIVEL'] = edf_list
+                st.session_state.dfs_por_filial = dfs_por_filial
+                st.session_state.dash_qtd_comprar = dash_qtd_comprar
+                st.session_state.dash_qtd_transferida = dash_qtd_transferida
+                st.session_state.dash_itens_pico = dash_itens_pico
+                st.session_state.dash_itens_ruptura = dash_itens_ruptura
+                st.session_state.df_p = df_p
+                st.session_state.excel_data = output.getvalue()
+                st.session_state.nome_final_xlsx = nome_final_xlsx
+                st.session_state.analise_concluida = True
 
-            filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
-            filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
-            filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
-            df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
-            
-            st.session_state.dfs_por_filial = dfs_por_filial
-            st.session_state.dash_qtd_comprar = dash_qtd_comprar
-            st.session_state.dash_qtd_transferida = dash_qtd_transferida
-            st.session_state.dash_itens_pico = dash_itens_pico
-            st.session_state.dash_itens_ruptura = dash_itens_ruptura
-            st.session_state.df_p = df_p
-            st.session_state.excel_data = output.getvalue()
-            st.session_state.nome_final_xlsx = nome_final_xlsx
-            st.session_state.analise_concluida = True
-
-        except Exception as e:
-            st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
-            st.code(traceback.format_exc())
+            except Exception as e:
+                st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
+                st.code(traceback.format_exc())
 
 # --- RENDERIZAÇÃO DAS ABAS ---
 if st.session_state.get("analise_concluida", False):
@@ -657,7 +654,6 @@ if st.session_state.get("analise_concluida", False):
             if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')): estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
             if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0: estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
             
-            # Regra visual atualizada para Transferências
             if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
                 if i_trans_morta >= 0 and row.get('TRANS_MORTA') == True:
                     estilos[i_transf] = 'background-color: #C55A11; color: white; font-weight: bold;'
@@ -670,7 +666,6 @@ if st.session_state.get("analise_concluida", False):
                 if i_estoque >= 0: estilos[i_estoque] = 'background-color: #FFD2D2; color: black;'
             return estilos
 
-        # Ocultamos colunas temporárias na visualização WEB para ficar limpo
         st.dataframe(df_view.drop(columns=['ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA'], errors='ignore').style.apply(pintar_tabela, axis=1), use_container_width=True)
 
 else: 
