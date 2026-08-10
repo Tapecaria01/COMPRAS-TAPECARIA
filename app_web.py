@@ -175,7 +175,6 @@ with st.sidebar:
     st.markdown("---")
     st.header("📂 Nova Compra")
     
-    # ATUALIZAÇÃO: O file_uploader agora usa uma chave dinâmica baseada no session_state
     uploaded_files = st.file_uploader(
         "Selecione os 4 PDFs das Unidades", 
         type="pdf", 
@@ -183,7 +182,6 @@ with st.sidebar:
         key=f"pdf_uploader_{st.session_state.uploader_key}"
     )
     
-    # NOVO: Botão para limpar a análise e os arquivos
     if st.button("🧹 Limpar Dados para Nova Compra", use_container_width=True):
         st.session_state.uploader_key += 1
         st.session_state.analise_concluida = False
@@ -198,9 +196,40 @@ with st.sidebar:
         nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
         nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
             
-    with st.expander("🏭 Fornecedores e Múltiplos"):
-        st.caption("Edite ou adicione regras na última linha vazia.")
-        df_regras_editado = st.data_editor(st.session_state.df_regras, num_rows="dynamic", use_container_width=True, hide_index=True)
+    # --- NOVO SISTEMA DE INCLUSÃO DE FORNECEDORES ---
+    with st.expander("🏭 Fornecedores e Múltiplos", expanded=True):
+        st.markdown("###### ➕ Adicionar Novo Fornecedor")
+        
+        c1, c2, c3 = st.columns([2, 1, 1])
+        novo_fornecedor = c1.text_input("Fornecedor", placeholder="Nome...")
+        novo_multiplo = c2.number_input("Múltiplo", min_value=1, value=10)
+        nova_tolerancia = c3.number_input("Tol.", min_value=0, value=5)
+        nova_palavra = st.text_input("Palavra-Chave (Opcional)", placeholder="Deixe vazio se for para todos os itens...")
+        
+        if st.button("Gravar Fornecedor", use_container_width=True):
+            if novo_fornecedor.strip() == "":
+                st.warning("O nome do fornecedor é obrigatório.")
+            else:
+                nova_linha = pd.DataFrame([{
+                    "FORNECEDOR": novo_fornecedor.upper().strip(), 
+                    "MULTIPLO": int(novo_multiplo), 
+                    "TOLERANCIA": int(nova_tolerancia), 
+                    "PALAVRA_CHAVE": nova_palavra.upper().strip()
+                }])
+                st.session_state.df_regras = pd.concat([st.session_state.df_regras, nova_linha], ignore_index=True)
+                st.success(f"✅ {novo_fornecedor.upper()} adicionado!")
+                st.rerun()
+                
+        st.markdown("---")
+        st.markdown("###### 📋 Tabela de Regras (Editar/Apagar)")
+        st.caption("Altere diretamente abaixo ou selecione a linha e pressione 'Delete' para remover.")
+        
+        df_regras_editado = st.data_editor(
+            st.session_state.df_regras, 
+            num_rows="dynamic", 
+            use_container_width=True, 
+            hide_index=True
+        )
         st.session_state.df_regras = df_regras_editado
 
 # --- CORPO DO SITE ---
@@ -257,7 +286,6 @@ if uploaded_files:
                     est = float(row['ESTOQUE'])
                     med = float(row['MEDIA_SISTEMA'])
                     
-                    # Garante a retenção de segurança de 3 meses, exceto se Média == 0
                     meses_retencao_seguranca = 3
                     excesso = est if med == 0 else max(0.0, est - (med * meses_retencao_seguranca))
                     
@@ -339,7 +367,7 @@ if uploaded_files:
                                 opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
                                 trans_item = []
                                 nec_rest = necessidade
-                                tem_morto = False # Sinalizador de transferência de estoque morto
+                                tem_morto = False 
                                 
                                 for op in opcoes:
                                     if nec_rest <= 0: break
@@ -355,7 +383,6 @@ if uploaded_files:
                                         tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
                                         nec_rest -= qtd_a_tirar
                                         
-                                        # Se a origem tinha Média Zero, ativa a flag!
                                         if tracker_estoque[chave_ced]['MEDIA'] == 0:
                                             tem_morto = True
                                         
@@ -390,7 +417,11 @@ if uploaded_files:
                         
                         for idx, regra in df_regras_editado.iterrows():
                             f_regra = str(regra.get('FORNECEDOR', '')).upper()
-                            if f_regra and f_regra != "NAN" and f_regra in forn:
+                            # Prevenção extra para o caso de algum valor nulo ter ficado no DataFrame
+                            if not f_regra or f_regra == "NAN" or f_regra == "NONE":
+                                continue
+                                
+                            if f_regra in forn:
                                 p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
                                 if p_chave and p_chave != "NAN" and p_chave != "NONE":
                                     if p_chave not in desc: continue 
@@ -523,34 +554,34 @@ if uploaded_files:
                         col_orig_trans = get_column_letter(idx_orig_trans)
                         ws.conditional_formatting.add(f"{col_trans}2:{col_trans}{max_row}", FormulaRule(formula=[f"${col_trans}2<>${col_orig_trans}2"], stopIfTrue=False, fill=yellow_cf_fill))
 
-                writer.close()
+            writer.close()
 
-                def get_estoque_final(row):
-                    chave = (row['FILIAL_NOME'], row['CODIGO'])
-                    return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
-                    
-                edf_list = []
-                for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
-                df_global['ESTOQUE_DISPONIVEL'] = edf_list
-
-                filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
-                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
-                filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
-                df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
+            def get_estoque_final(row):
+                chave = (row['FILIAL_NOME'], row['CODIGO'])
+                return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
                 
-                st.session_state.dfs_por_filial = dfs_por_filial
-                st.session_state.dash_qtd_comprar = dash_qtd_comprar
-                st.session_state.dash_qtd_transferida = dash_qtd_transferida
-                st.session_state.dash_itens_pico = dash_itens_pico
-                st.session_state.dash_itens_ruptura = dash_itens_ruptura
-                st.session_state.df_p = df_p
-                st.session_state.excel_data = output.getvalue()
-                st.session_state.nome_final_xlsx = nome_final_xlsx
-                st.session_state.analise_concluida = True
+            edf_list = []
+            for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
+            df_global['ESTOQUE_DISPONIVEL'] = edf_list
 
-            except Exception as e:
-                st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
-                st.code(traceback.format_exc())
+            filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
+            filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
+            filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
+            df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
+            
+            st.session_state.dfs_por_filial = dfs_por_filial
+            st.session_state.dash_qtd_comprar = dash_qtd_comprar
+            st.session_state.dash_qtd_transferida = dash_qtd_transferida
+            st.session_state.dash_itens_pico = dash_itens_pico
+            st.session_state.dash_itens_ruptura = dash_itens_ruptura
+            st.session_state.df_p = df_p
+            st.session_state.excel_data = output.getvalue()
+            st.session_state.nome_final_xlsx = nome_final_xlsx
+            st.session_state.analise_concluida = True
+
+        except Exception as e:
+            st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
+            st.code(traceback.format_exc())
 
 # --- RENDERIZAÇÃO DAS ABAS ---
 if st.session_state.get("analise_concluida", False):
