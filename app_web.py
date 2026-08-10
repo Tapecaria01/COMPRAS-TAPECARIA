@@ -72,6 +72,10 @@ if not st.session_state.liberado:
 if "analise_concluida" not in st.session_state:
     st.session_state.analise_concluida = False
 
+# NOVA VARIÁVEL: Chave dinâmica para limpar o uploader de arquivos
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
 if "df_regras" not in st.session_state:
     st.session_state.df_regras = pd.DataFrame([
         {"FORNECEDOR": "CORTTEX", "MULTIPLO": 50, "TOLERANCIA": 20, "PALAVRA_CHAVE": ""},
@@ -170,7 +174,21 @@ with st.sidebar:
         
     st.markdown("---")
     st.header("📂 Nova Compra")
-    uploaded_files = st.file_uploader("Selecione os 4 PDFs das Unidades", type="pdf", accept_multiple_files=True)
+    
+    # ATUALIZAÇÃO: O file_uploader agora usa uma chave dinâmica baseada no session_state
+    uploaded_files = st.file_uploader(
+        "Selecione os 4 PDFs das Unidades", 
+        type="pdf", 
+        accept_multiple_files=True, 
+        key=f"pdf_uploader_{st.session_state.uploader_key}"
+    )
+    
+    # NOVO: Botão para limpar a análise e os arquivos
+    if st.button("🧹 Limpar Dados para Nova Compra", use_container_width=True):
+        st.session_state.uploader_key += 1
+        st.session_state.analise_concluida = False
+        st.rerun()
+        
     st.markdown("---")
     
     with st.expander("⚙️ Configurações Avançadas"):
@@ -239,7 +257,7 @@ if uploaded_files:
                     est = float(row['ESTOQUE'])
                     med = float(row['MEDIA_SISTEMA'])
                     
-                    # CORREÇÃO: Garante a retenção de segurança de 3 meses, exceto se Média == 0
+                    # Garante a retenção de segurança de 3 meses, exceto se Média == 0
                     meses_retencao_seguranca = 3
                     excesso = est if med == 0 else max(0.0, est - (med * meses_retencao_seguranca))
                     
@@ -321,7 +339,7 @@ if uploaded_files:
                                 opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
                                 trans_item = []
                                 nec_rest = necessidade
-                                tem_morto = False # NOVO: Sinalizador de transferência de estoque morto
+                                tem_morto = False # Sinalizador de transferência de estoque morto
                                 
                                 for op in opcoes:
                                     if nec_rest <= 0: break
@@ -354,7 +372,7 @@ if uploaded_files:
 
                     ti_list = []
                     sug_list = []
-                    tm_list = [] # NOVA LISTA: Guardará o sinalizador de transferência de estoque morto
+                    tm_list = [] 
                     for _, row in df_dest.iterrows():
                         ti, sug, tm = calcular_log(row)
                         ti_list.append(ti)
@@ -432,7 +450,7 @@ if uploaded_files:
                     
                     ws.column_dimensions[get_column_letter(idx_orig_sug)].hidden = True
                     ws.column_dimensions[get_column_letter(idx_orig_trans)].hidden = True
-                    ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True # Oculta a coluna de controle visual
+                    ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True 
                     
                     for col_idx, col in enumerate(ws.columns, 1):
                         col_letter = get_column_letter(col_idx)
@@ -478,10 +496,10 @@ if uploaded_files:
                         
                         if val_transf not in ["0", "None"]:
                             if is_morta: 
-                                ws.cell(r, idx_transf).fill = c_laranja # Aplica Laranja
-                                ws.cell(r, idx_transf).font = font_branca # Fonte Branca para dar contraste
+                                ws.cell(r, idx_transf).fill = c_laranja 
+                                ws.cell(r, idx_transf).font = font_branca 
                             else:
-                                ws.cell(r, idx_transf).fill = ca # Aplica Azul Claro padrão
+                                ws.cell(r, idx_transf).fill = ca 
                                 ws.cell(r, idx_transf).font = font_preta
                                 
                         if "⚠️ SIM" in str(ws.cell(r, idx_atipica).value): ws.cell(r, idx_atipica).fill = cy 
@@ -505,34 +523,34 @@ if uploaded_files:
                         col_orig_trans = get_column_letter(idx_orig_trans)
                         ws.conditional_formatting.add(f"{col_trans}2:{col_trans}{max_row}", FormulaRule(formula=[f"${col_trans}2<>${col_orig_trans}2"], stopIfTrue=False, fill=yellow_cf_fill))
 
-                writer.close()
+            writer.close()
 
-                def get_estoque_final(row):
-                    chave = (row['FILIAL_NOME'], row['CODIGO'])
-                    return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
-                    
-                edf_list = []
-                for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
-                df_global['ESTOQUE_DISPONIVEL'] = edf_list
-
-                filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
-                filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
-                filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
-                df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
+            def get_estoque_final(row):
+                chave = (row['FILIAL_NOME'], row['CODIGO'])
+                return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
                 
-                st.session_state.dfs_por_filial = dfs_por_filial
-                st.session_state.dash_qtd_comprar = dash_qtd_comprar
-                st.session_state.dash_qtd_transferida = dash_qtd_transferida
-                st.session_state.dash_itens_pico = dash_itens_pico
-                st.session_state.dash_itens_ruptura = dash_itens_ruptura
-                st.session_state.df_p = df_p
-                st.session_state.excel_data = output.getvalue()
-                st.session_state.nome_final_xlsx = nome_final_xlsx
-                st.session_state.analise_concluida = True
+            edf_list = []
+            for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
+            df_global['ESTOQUE_DISPONIVEL'] = edf_list
 
-            except Exception as e:
-                st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
-                st.code(traceback.format_exc())
+            filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
+            filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
+            filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
+            df_p = df_global[filtro_p1 & (filtro_p2 | filtro_p3)]
+            
+            st.session_state.dfs_por_filial = dfs_por_filial
+            st.session_state.dash_qtd_comprar = dash_qtd_comprar
+            st.session_state.dash_qtd_transferida = dash_qtd_transferida
+            st.session_state.dash_itens_pico = dash_itens_pico
+            st.session_state.dash_itens_ruptura = dash_itens_ruptura
+            st.session_state.df_p = df_p
+            st.session_state.excel_data = output.getvalue()
+            st.session_state.nome_final_xlsx = nome_final_xlsx
+            st.session_state.analise_concluida = True
+
+        except Exception as e:
+            st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
+            st.code(traceback.format_exc())
 
 # --- RENDERIZAÇÃO DAS ABAS ---
 if st.session_state.get("analise_concluida", False):
