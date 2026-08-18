@@ -13,9 +13,7 @@ from openpyxl.formatting.rule import FormulaRule
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 
-# ==========================================
 # --- ESTILIZAÇÃO CSS (DESIGN PREMIUM) ---
-# ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117 !important; }
@@ -28,18 +26,15 @@ st.markdown("""
         font-weight: 600 !important;
         transition: 0.3s !important;
     }
-    div.stButton > button:first-child:hover { 
-        background-color: #003366 !important; 
-        color: white !important; 
+    div.stButton > button:first-child:hover {
+        background-color: #003366 !important;
+        color: white !important;
     }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# ==========================================
-# --- TELA DE SENHA (BLOQUEIO CENTRALIZADO) ---
-# ==========================================
+# --- TELA DE SENHA ---
 SENHA_ACESSO = "Tape2026"
-
 if "liberado" not in st.session_state:
     st.session_state.liberado = False
 
@@ -49,14 +44,12 @@ if not st.session_state.liberado:
         st.markdown("<br><br><br><br>", unsafe_allow_html=True)
         sc1, sc2, sc3 = st.columns([1.5, 1, 1.5])
         with sc2:
-            try: 
+            try:
                 st.image("logo.png", use_container_width=True)
-            except: 
+            except:
                 st.markdown("<h1 style='text-align: center; color: white;'>🏢</h1>", unsafe_allow_html=True)
-            
         st.markdown("<h2 style='text-align: center; color: #FFFFFF;'>Acesso Restrito</h2>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #4DA8DA;'>Insira a senha de sistema para aceder à inteligência de compras.</p>", unsafe_allow_html=True)
-        
         senha = st.text_input("Senha", type="password")
         if st.button("Entrar no Portal", use_container_width=True):
             if senha == SENHA_ACESSO:
@@ -66,13 +59,9 @@ if not st.session_state.liberado:
                 st.error("Senha incorreta. Tente novamente.")
     st.stop()
 
-# ==========================================
 # --- VARIÁVEIS DE SESSÃO ---
-# ==========================================
 if "analise_concluida" not in st.session_state:
     st.session_state.analise_concluida = False
-
-# NOVA VARIÁVEL: Chave dinâmica para limpar o uploader de arquivos
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -92,169 +81,132 @@ if "df_regras" not in st.session_state:
         {"FORNECEDOR": "ROMA DUBLADOS", "MULTIPLO": 10, "TOLERANCIA": 5, "PALAVRA_CHAVE": ""}
     ])
 
-# ==========================================
-# --- FUNÇÕES DE APOIO ---
-# ==========================================
 def limpar_v(valor):
-    if not valor: 
-        return 0.0
+    if not valor: return 0.0
     s = str(valor).strip().replace('.', '').replace(',', '.')
-    try: 
+    try:
         numero_limpo = re.sub(r'[^\d.]', '', s)
         return float(numero_limpo)
-    except: 
-        return 0.0
+    except: return 0.0
 
-# --- CACHE INTELIGENTE DE PDF ---
-@st.cache_data(show_spinner="A ler catálogos em PDF. Por favor, aguarde... ⏳")
+@st.cache_data(show_spinner=False)
 def extrair_dados_pdf_web(pdf_file):
     dados = []
     nome_filial = pdf_file.name.replace(".pdf", "").upper()
     meses_encontrados = []
     fornecedor_atual = "DESCONHECIDO"
-    
     try:
         with pdfplumber.open(pdf_file) as pdf:
             for pagina in pdf.pages:
                 texto = pagina.extract_text()
-                if not texto: 
-                    continue
-                    
+                if not texto: continue
+                
                 if len(meses_encontrados) < 4:
                     padrao_mes = r'\b(?:jan|fev|feb|mar|abr|apr|mai|may|jun|jul|ago|aug|set|sep|out|oct|nov|dez|dec)/\d{2,4}\b'
                     encontrados = re.findall(padrao_mes, texto.lower())
                     for m in encontrados:
                         m_upper = m.upper()
-                        if m_upper not in meses_encontrados: 
+                        if m_upper not in meses_encontrados:
                             meses_encontrados.append(m_upper)
                             
                 for linha in texto.split('\n'):
                     l = linha.strip()
                     if "SEGMENTO" in l.upper():
                         match = re.search(r'SEGMENTO\s*:\s*(.*)', l, re.IGNORECASE)
-                        if match: 
+                        if match:
                             fornecedor_atual = match.group(1).strip()
                     else:
-                        # --- REMOÇÃO UNIVERSAL DE ASTERISCOS ---
-                        l = re.sub(r'^\*+\s*', '', l)
+                        # --- NOVA LÓGICA DE ASTERISCOS ---
+                        tem_asterisco = False
+                        if re.match(r'^\*+\s*', l):
+                            tem_asterisco = True
+                            l = re.sub(r'^\*+\s*', '', l)
                             
-                        # Continua a leitura normal do código numérico
                         if re.match(r'^\d{3,6}\s', l):
                             partes = l.split()
                             try:
                                 item_dict = {
-                                    'CODIGO': partes[0], 
-                                    'DESCRICAO': " ".join(partes[1:-11]), 
+                                    'CODIGO': partes[0],
+                                    'DESCRICAO': " ".join(partes[1:-11]),
                                     'EMB.': partes[-11],
-                                    'MES_1': limpar_v(partes[-10]), 
-                                    'MES_2': limpar_v(partes[-9]), 
+                                    'MES_1': limpar_v(partes[-10]),
+                                    'MES_2': limpar_v(partes[-9]),
                                     'MES_3': limpar_v(partes[-8]),
-                                    'MES_4': limpar_v(partes[-7]), 
-                                    'MEDIA_SISTEMA': limpar_v(partes[-6]), 
+                                    'MES_4': limpar_v(partes[-7]),
+                                    'MEDIA_SISTEMA': limpar_v(partes[-6]),
                                     'ESTOQUE': limpar_v(partes[-5]),
-                                    'RESERVA': limpar_v(partes[-4]), 
-                                    'COMPRADA': limpar_v(partes[-3]), 
-                                    'MESES_ESTOQUE': limpar_v(partes[-1]), 
-                                    'FILIAL_NOME': nome_filial, 
-                                    'FORNECEDOR': fornecedor_atual
+                                    'RESERVA': limpar_v(partes[-4]),
+                                    'COMPRADA': limpar_v(partes[-3]),
+                                    'MESES_ESTOQUE': limpar_v(partes[-1]),
+                                    'FILIAL_NOME': nome_filial,
+                                    'FORNECEDOR': fornecedor_atual,
+                                    'TEM_ASTERISCO': tem_asterisco # Flag salva para o Excel
                                 }
                                 dados.append(item_dict)
-                            except: 
-                                continue
+                            except: continue
         return pd.DataFrame(dados), meses_encontrados
-    except Exception as e: 
+    except Exception as e:
         return pd.DataFrame(), []
 
 # --- INTERFACE WEB (BARRA LATERAL) ---
 with st.sidebar:
-    try: 
-        st.image("logo.png", use_container_width=True)
-    except: 
-        pass
-        
+    try: st.image("logo.png", use_container_width=True)
+    except: pass
+    
     st.markdown("---")
     st.header("📂 Nova Compra")
-    
-    uploaded_files = st.file_uploader(
-        "Selecione os 4 PDFs das Unidades", 
-        type="pdf", 
-        accept_multiple_files=True, 
-        key=f"pdf_uploader_{st.session_state.uploader_key}"
-    )
+    uploaded_files = st.file_uploader("Selecione os PDFs", type="pdf", accept_multiple_files=True, key=f"uploader_{st.session_state.uploader_key}")
     
     if st.button("🧹 Limpar Dados para Nova Compra", use_container_width=True):
         st.session_state.uploader_key += 1
         st.session_state.analise_concluida = False
         st.rerun()
-        
+
     st.markdown("---")
-    
     with st.expander("⚙️ Configurações Avançadas"):
         meta = st.number_input("Meta de estoque (meses)", min_value=1, value=2)
         meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1, value=3, step=1)
         fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
+        meses_retencao_seguranca = 3
         nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
         nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
-            
-    # --- NOVO SISTEMA DE INCLUSÃO DE FORNECEDORES ---
+        
     with st.expander("🏭 Fornecedores e Múltiplos", expanded=True):
-        st.markdown("###### ➕ Adicionar Novo Fornecedor")
+        st.markdown("📝 **Adicionar Novo Fornecedor**")
+        novo_forn = st.text_input("Nome (ex: CORTTEX)")
+        novo_mult = st.number_input("Múltiplo", min_value=1, value=10)
+        nova_tol = st.number_input("Tolerância", min_value=0, value=5)
+        nova_chave = st.text_input("Palavra-Chave (Opcional)")
         
-        c1, c2, c3 = st.columns([2, 1, 1])
-        novo_fornecedor = c1.text_input("Fornecedor", placeholder="Nome...")
-        novo_multiplo = c2.number_input("Múltiplo", min_value=1, value=10)
-        nova_tolerancia = c3.number_input("Tol.", min_value=0, value=5)
-        nova_palavra = st.text_input("Palavra-Chave (Opcional)", placeholder="Deixe vazio se for para todos os itens...")
-        
-        if st.button("Gravar Fornecedor", use_container_width=True):
-            fornecedor_limpo = novo_fornecedor.upper().strip()
-            
-            # --- VALIDAÇÃO DE DUPLICIDADE ---
-            if fornecedor_limpo == "":
-                st.warning("O nome do fornecedor é obrigatório.")
-            elif fornecedor_limpo in st.session_state.df_regras['FORNECEDOR'].astype(str).str.upper().str.strip().values:
-                st.error(f"⚠️ Atenção: O fornecedor '{fornecedor_limpo}' já existe na lista!")
+        if st.button("✅ Gravar Fornecedor"):
+            if novo_forn.strip() == "":
+                st.error("O nome não pode estar vazio!")
             else:
-                nova_linha = pd.DataFrame([{
-                    "FORNECEDOR": fornecedor_limpo, 
-                    "MULTIPLO": int(novo_multiplo), 
-                    "TOLERANCIA": int(nova_tolerancia), 
-                    "PALAVRA_CHAVE": nova_palavra.upper().strip()
-                }])
-                st.session_state.df_regras = pd.concat([st.session_state.df_regras, nova_linha], ignore_index=True)
-                st.success(f"✅ {fornecedor_limpo} adicionado com sucesso!")
-                st.rerun()
-                
-        st.markdown("---")
-        st.markdown("###### 📋 Tabela de Regras (Editar/Apagar)")
-        st.caption("Altere diretamente abaixo ou selecione a linha e pressione 'Delete' para remover.")
+                fornecedores_existentes = st.session_state.df_regras['FORNECEDOR'].str.upper().str.strip().tolist()
+                if novo_forn.upper().strip() in fornecedores_existentes:
+                    st.error("⚠️ Este fornecedor já está na lista!")
+                else:
+                    nova_linha = {"FORNECEDOR": novo_forn.upper(), "MULTIPLO": novo_mult, "TOLERANCIA": nova_tol, "PALAVRA_CHAVE": nova_chave}
+                    st.session_state.df_regras = pd.concat([st.session_state.df_regras, pd.DataFrame([nova_linha])], ignore_index=True)
+                    st.success("Adicionado com sucesso!")
+                    st.rerun()
         
-        df_regras_editado = st.data_editor(
-            st.session_state.df_regras, 
-            num_rows="dynamic", 
-            use_container_width=True, 
-            hide_index=True
-        )
+        st.markdown("📋 **Gestão de Regras Atuais**")
+        df_regras_editado = st.data_editor(st.session_state.df_regras, num_rows="dynamic", use_container_width=True, hide_index=True)
         st.session_state.df_regras = df_regras_editado
 
 # --- CORPO DO SITE ---
 col1, col2 = st.columns([1, 15])
 with col1:
-    try: 
-        st.image("simbolo.png", width=50)
-    except: 
-        pass
+    try: st.image("simbolo.png", width=50)
+    except: pass
 with col2:
     st.title("Inteligência de Compras")
-
 st.markdown("##### Portal Operacional - Tapeçaria")
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ====================================================
-# === PROCESSAMENTO AUTOMÁTICO ("PISCOU, MUDOU") ===
-# ====================================================
 if uploaded_files:
-    with st.spinner("A executar Inteligência de Compras e cruzar dados. Isto pode levar até 2 minutos... 🚀"):
+    with st.spinner("A executar Inteligência de Compras..."):
         dfs_por_filial = {}
         todos_dados = []
         meses_globais = []
@@ -268,21 +220,19 @@ if uploaded_files:
             if not df.empty:
                 dfs_por_filial[f.name.replace(".pdf", "").upper()] = df
                 todos_dados.append(df)
-                if len(meses) >= 4 and not meses_globais: 
+                if len(meses) >= 4 and not meses_globais:
                     meses_globais = meses[:4]
-        
-        if not meses_globais: 
+                    
+        if not meses_globais:
             meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
-        
+            
         if not todos_dados:
             st.error("⚠️ O sistema não encontrou produtos compatíveis nos PDFs.")
         else:
             try:
                 df_global = pd.concat(todos_dados).reset_index(drop=True)
                 df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
-                
-                vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
-                df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
+                df_global['TOTAL_VENDAS_RECENTES'] = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
                 
                 tracker_estoque = {}
                 for _, row in df_global.iterrows():
@@ -291,10 +241,14 @@ if uploaded_files:
                     est = float(row['ESTOQUE'])
                     med = float(row['MEDIA_SISTEMA'])
                     
-                    meses_retencao_seguranca = 3
-                    excesso = est if med == 0 else max(0.0, est - (med * meses_retencao_seguranca))
-                    
-                    tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est}
+                    if med == 0:
+                        excesso = est
+                        morta = True
+                    else:
+                        excesso = max(0.0, est - (med * meses_retencao_seguranca))
+                        morta = False
+                        
+                    tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est, 'ESTOQUE_MORTO': morta}
 
                 output = BytesIO()
                 writer = pd.ExcelWriter(output, engine='openpyxl')
@@ -307,10 +261,7 @@ if uploaded_files:
                             elif row['MESES_ESTOQUE'] > meses_parado: return "🛑 SIM"
                         return ""
                         
-                    ep_list = []
-                    for _, row in df_dest.iterrows():
-                        ep_list.append(classificar_estoque_parado(row))
-                    df_dest['ESTOQUE PARADO'] = ep_list
+                    df_dest['ESTOQUE PARADO'] = [classificar_estoque_parado(r) for _, r in df_dest.iterrows()]
                     
                     def processar_atipico(row):
                         meses_v = [row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4']]
@@ -324,19 +275,14 @@ if uploaded_files:
                         if media_sis > 0 and media_sem > 0: base_comp = min(media_sis, media_sem)
                         elif media_sem > 0: base_comp = media_sem
                         else: base_comp = media_sis
-                            
-                        if base_comp > 0 and pico >= (base_comp * fator_pico) and pico >= 30: 
+                        
+                        if base_comp > 0 and pico >= (base_comp * fator_pico) and pico >= 30:
                             return "⚠️ SIM", round(media_sem, 2)
-                        elif base_comp == 0 and pico >= 30: 
+                        elif base_comp == 0 and pico >= 30:
                             return "⚠️ SIM", 0.0
                         return "Não", media_sis
 
-                    va_list = []
-                    mpc_list = []
-                    for _, row in df_dest.iterrows():
-                        va, mpc = processar_atipico(row)
-                        va_list.append(va)
-                        mpc_list.append(mpc)
+                    va_list, mpc_list = zip(*[processar_atipico(r) for _, r in df_dest.iterrows()])
                     df_dest['VENDA_ATIPICA'] = va_list
                     df_dest['MEDIA_P_CALCULO'] = mpc_list
                     
@@ -346,17 +292,14 @@ if uploaded_files:
                         if float(row['ESTOQUE']) == 0 and float(row['COMPRADA']) == 0 and float(row['MEDIA_P_CALCULO']) > 0:
                             return "🚨 CRÍTICA"
                         return "OK"
-                    
-                    rupt_list = []
-                    for _, row in df_dest.iterrows():
-                        rupt_list.append(classificar_ruptura(row))
-                    df_dest['RUPTURA CRÍTICA'] = rupt_list
+                        
+                    df_dest['RUPTURA CRÍTICA'] = [classificar_ruptura(r) for _, r in df_dest.iterrows()]
                     dash_itens_ruptura += len(df_dest[df_dest['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"])
                     
                     def calcular_log(row):
                         cod = row['CODIGO']
-                        nec_calc = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
-                        necessidade = nec_calc
+                        necessidade = (row['MEDIA_P_CALCULO'] * meta) - (row['ESTOQUE'] + row['COMPRADA'])
+                        eh_transf_morta = False
                         
                         if necessidade > 0:
                             opcoes = []
@@ -364,55 +307,52 @@ if uploaded_files:
                                 if f_outra == nome_destino: continue
                                 chave = (f_outra, cod)
                                 if chave in tracker_estoque and tracker_estoque[chave]['EXCEDENTE'] > 0:
-                                    opcoes.append({'filial': f_outra, 'media': tracker_estoque[chave]['MEDIA'], 'excedente': tracker_estoque[chave]['EXCEDENTE']})
-                            
+                                    opcoes.append({
+                                        'filial': f_outra, 
+                                        'media': tracker_estoque[chave]['MEDIA'], 
+                                        'excedente': tracker_estoque[chave]['EXCEDENTE'],
+                                        'morta': tracker_estoque[chave]['ESTOQUE_MORTO']
+                                    })
+                                    
                             if opcoes:
                                 opcoes = sorted(opcoes, key=lambda x: (x['media'], -x['excedente']))
                                 trans_item = []
                                 nec_rest = necessidade
-                                tem_morto = False 
                                 
                                 for op in opcoes:
                                     if nec_rest <= 0: break
                                     chave_ced = (op['filial'], cod)
                                     sal_ced = tracker_estoque[chave_ced]['EXCEDENTE']
-                                    
                                     if sal_ced <= 0: continue
+                                    
                                     if nec_rest < 30 and sal_ced >= 30: qtd_a_tirar = 30
                                     else: qtd_a_tirar = min(nec_rest, sal_ced)
-                                        
+                                    
                                     if qtd_a_tirar >= 30:
                                         tracker_estoque[chave_ced]['EXCEDENTE'] -= qtd_a_tirar
                                         tracker_estoque[chave_ced]['ESTOQUE_FINAL'] -= qtd_a_tirar
                                         nec_rest -= qtd_a_tirar
                                         
-                                        if tracker_estoque[chave_ced]['MEDIA'] == 0:
-                                            tem_morto = True
+                                        if op['morta']: eh_transf_morta = True
                                         
                                         nome_ced = op['filial']
                                         if 'RIBEIR' in nome_ced: apelido = 'RP'
                                         elif 'LONDRINA' in nome_ced: apelido = 'Lon'
                                         elif 'FRANCA' in nome_ced: apelido = 'Frc'
                                         else: apelido = nome_ced
-                                            
+                                        
                                         trans_item.append(f"Tirar {int(qtd_a_tirar)} de {apelido}")
                                         
-                                if trans_item: return " | ".join(trans_item), round(max(0, nec_rest), 2), tem_morto
+                                if trans_item: 
+                                    obs = " (MORTA)" if eh_transf_morta else ""
+                                    return " | ".join(trans_item) + obs, round(max(0, nec_rest), 2), eh_transf_morta
                         return "0", round(max(0, necessidade), 2), False
 
-                    ti_list = []
-                    sug_list = []
-                    tm_list = [] 
-                    for _, row in df_dest.iterrows():
-                        ti, sug, tm = calcular_log(row)
-                        ti_list.append(ti)
-                        sug_list.append(sug)
-                        tm_list.append(tm)
-                        
-                    df_dest['TRANS INTERNA'] = ti_list
-                    df_dest['TRANS_MORTA'] = tm_list
-                    sug_base = sug_list
-
+                    resultados_log = [calcular_log(r) for _, r in df_dest.iterrows()]
+                    df_dest['TRANS INTERNA'] = [r[0] for r in resultados_log]
+                    sug_base = [r[1] for r in resultados_log]
+                    df_dest['TRANS_MORTA'] = [r[2] for r in resultados_log]
+                    
                     def aplicar_mult(row, sug):
                         if sug <= 0: return 0
                         forn = str(row.get('FORNECEDOR', '')).upper()
@@ -420,10 +360,7 @@ if uploaded_files:
                         
                         for idx, regra in df_regras_editado.iterrows():
                             f_regra = str(regra.get('FORNECEDOR', '')).upper()
-                            if not f_regra or f_regra == "NAN" or f_regra == "NONE":
-                                continue
-                                
-                            if f_regra in forn:
+                            if f_regra and f_regra != "NAN" and f_regra in forn:
                                 p_chave = str(regra.get('PALAVRA_CHAVE', '')).upper().strip()
                                 if p_chave and p_chave != "NAN" and p_chave != "NONE":
                                     if p_chave not in desc: continue 
@@ -439,13 +376,12 @@ if uploaded_files:
                                     else: return int(base)
                         return int(math.ceil(sug))
 
-                    df_sug_zip = zip(df_dest.to_dict('records'), sug_base)
-                    df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in df_sug_zip]
+                    df_dest['SUGESTAO COMPRA'] = [aplicar_mult(r, s) for r, s in zip(df_dest.to_dict('records'), sug_base)]
                     dash_qtd_comprar += df_dest['SUGESTAO COMPRA'].sum()
                     
-                    def extrair_n(t): 
+                    def extrair_n(t):
                         if str(t) == "0": return 0
-                        numeros = re.findall(r'\d+', str(t))
+                        numeros = re.findall(r'\d+', str(t).split(' (')[0])
                         try: return sum([int(n) for n in numeros])
                         except: return 0
                         
@@ -460,10 +396,10 @@ if uploaded_files:
                     cols_f = [
                         'CODIGO', 'DESCRICAO', 'EMB.', meses_globais[0], meses_globais[1], meses_globais[2], meses_globais[3], 
                         'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'MESES', 'SUGESTAO COMPRA', 'TRANS INTERNA', 
-                        'VENDA_ATIPICA', 'ESTOQUE PARADO', 'RUPTURA CRÍTICA', 'ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA'
+                        'VENDA_ATIPICA', 'ESTOQUE PARADO', 'RUPTURA CRÍTICA', 'ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA', 'TEM_ASTERISCO'
                     ]
                     
-                    sheet_n = re.sub(r'[\\/*?:\[\]]', '', nome_destino)[:30]
+                    sheet_n = re.sub(r'[\/*\?:\[\]]', '', nome_destino)[:30]
                     df_dest[cols_f].to_excel(writer, sheet_name=sheet_n, index=False)
                     
                     ws = writer.sheets[sheet_n]
@@ -480,10 +416,13 @@ if uploaded_files:
                     idx_orig_sug = cols_f.index('ORIGINAL_SUGESTAO') + 1
                     idx_orig_trans = cols_f.index('ORIGINAL_TRANS') + 1
                     idx_trans_morta = cols_f.index('TRANS_MORTA') + 1
+                    idx_asterisco = cols_f.index('TEM_ASTERISCO') + 1
+                    idx_codigo = cols_f.index('CODIGO') + 1
                     
                     ws.column_dimensions[get_column_letter(idx_orig_sug)].hidden = True
                     ws.column_dimensions[get_column_letter(idx_orig_trans)].hidden = True
-                    ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True 
+                    ws.column_dimensions[get_column_letter(idx_trans_morta)].hidden = True
+                    ws.column_dimensions[get_column_letter(idx_asterisco)].hidden = True
                     
                     for col_idx, col in enumerate(ws.columns, 1):
                         col_letter = get_column_letter(col_idx)
@@ -507,10 +446,9 @@ if uploaded_files:
                     cy = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
                     c_red = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
                     c_rup = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid") 
-                    
-                    c_laranja = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
-                    font_branca = Font(color="FFFFFF", bold=True)
-                    font_preta = Font(color="000000", bold=False)
+                    c_morta = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
+                    c_ast = PatternFill(start_color="FFE599", end_color="FFE599", fill_type="solid") # Amarelo Ouro
+                    font_white = Font(color="FFFFFF", bold=True)
                     
                     idx_estoque = cols_f.index('ESTOQUE') + 1 
                     idx_comprada = cols_f.index('COMPRADA') + 1 
@@ -521,20 +459,17 @@ if uploaded_files:
                     for r in range(2, len(ws['A']) + 1):
                         if limpar_v(ws.cell(r, idx_comprada).value) > 0: ws.cell(r, idx_comprada).fill = cl 
                         if limpar_v(ws.cell(r, idx_compra).value) > 0: ws.cell(r, idx_compra).fill = cv 
-                        
-                        val_transf = str(ws.cell(r, idx_transf).value)
-                        is_morta = ws.cell(r, idx_trans_morta).value
-                        
-                        if val_transf not in ["0", "None"]:
-                            if is_morta: 
-                                ws.cell(r, idx_transf).fill = c_laranja 
-                                ws.cell(r, idx_transf).font = font_branca 
-                            else:
-                                ws.cell(r, idx_transf).fill = ca 
-                                ws.cell(r, idx_transf).font = font_preta
-                                
+                        if str(ws.cell(r, idx_transf).value) not in ["0", "None"]: ws.cell(r, idx_transf).fill = ca 
                         if "⚠️ SIM" in str(ws.cell(r, idx_atipica).value): ws.cell(r, idx_atipica).fill = cy 
                         
+                        if ws.cell(r, idx_trans_morta).value == True:
+                            ws.cell(r, idx_transf).fill = c_morta
+                            ws.cell(r, idx_transf).font = font_white
+                            
+                        # --- PINTA O CÓDIGO SE ELE TINHA ASTERISCO ---
+                        if ws.cell(r, idx_asterisco).value == True:
+                            ws.cell(r, idx_codigo).fill = c_ast
+                            
                         if "🛑 SIM" in str(ws.cell(r, idx_parado).value): 
                             ws.cell(r, idx_parado).fill = c_red
                             ws.cell(r, idx_estoque).fill = c_red
@@ -560,10 +495,8 @@ if uploaded_files:
                     chave = (row['FILIAL_NOME'], row['CODIGO'])
                     return tracker_estoque[chave]['ESTOQUE_FINAL'] if chave in tracker_estoque else row['ESTOQUE']
                     
-                edf_list = []
-                for _, row in df_global.iterrows(): edf_list.append(get_estoque_final(row))
-                df_global['ESTOQUE_DISPONIVEL'] = edf_list
-
+                df_global['ESTOQUE_DISPONIVEL'] = [get_estoque_final(r) for _, r in df_global.iterrows()]
+                
                 filtro_p1 = df_global['ESTOQUE_DISPONIVEL'] > 0
                 filtro_p2 = df_global['MEDIA_SISTEMA'] == 0
                 filtro_p3 = df_global['MESES_ESTOQUE'] > meses_parado
@@ -583,8 +516,7 @@ if uploaded_files:
                 st.error(f"🚨 Ocorreu um erro interno durante os cálculos: {e}")
                 st.code(traceback.format_exc())
 
-# --- RENDERIZAÇÃO DAS ABAS ---
-if st.session_state.get("analise_concluida", False):
+if st.session_state.analise_concluida:
     dfs_por_filial = st.session_state.dfs_por_filial
     dash_qtd_comprar = st.session_state.dash_qtd_comprar
     dash_qtd_transferida = st.session_state.dash_qtd_transferida
@@ -611,10 +543,9 @@ if st.session_state.get("analise_concluida", False):
 
     with tab2:
         df_all = pd.concat(dfs_por_filial.values())
-        
         df_rupturas = df_all[df_all['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"].sort_values(by='MEDIA', ascending=False)
         if not df_rupturas.empty:
-            st.error("🚨 PRODUTOS EM RUPTURA CRÍTICA DETECTADOS (Estoque Zero + Sem Pedido em Andamento)")
+            st.error("🚨 PRODUTOS EM RUPTURA CRÍTICA DETECTADOS")
             st.dataframe(df_rupturas[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'MEDIA', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
         else:
             st.success("✅ Nenhuma ruptura crítica absoluta detectada nas filiais!")
@@ -630,7 +561,7 @@ if st.session_state.get("analise_concluida", False):
             grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().reset_index()
             fig = px.bar(grafico_dados, x='FILIAL_NOME', y='ESTOQUE_DISPONIVEL', title="Volume de Estoque Acima do Limite de Giro", color='ESTOQUE_DISPONIVEL', color_continuous_scale='Reds')
             st.plotly_chart(fig, use_container_width=True)
-        else: st.info("Nenhum stock crítico detetado com base nos parâmetros atuais.")
+        else: st.info("Nenhum stock crítico detetado.")
 
     with tab4:
         st.subheader("Prévia Colorida dos Dados")
@@ -649,27 +580,26 @@ if st.session_state.get("analise_concluida", False):
             i_transf = f_idx('TRANS INTERNA')
             i_comprada = f_idx('COMPRADA')
             i_ruptura = f_idx('RUPTURA CRÍTICA')
-            i_trans_morta = f_idx('TRANS_MORTA')
+            i_asterisco = f_idx('TEM_ASTERISCO')
+            i_codigo = f_idx('CODIGO')
             
             if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
                 estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
                 if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
             if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')): estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
             if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0: estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
-            
-            if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
-                if i_trans_morta >= 0 and row.get('TRANS_MORTA') == True:
-                    estilos[i_transf] = 'background-color: #C55A11; color: white; font-weight: bold;'
-                else:
-                    estilos[i_transf] = 'background-color: #C9DAF8; color: black;'
-                    
+            if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']: 
+                if row.get('TRANS_MORTA', False): estilos[i_transf] = 'background-color: #C55A11; color: white; font-weight: bold;'
+                else: estilos[i_transf] = 'background-color: #C9DAF8; color: black;'
             if i_comprada >= 0 and pd.to_numeric(row.get('COMPRADA', 0), errors='coerce') > 0: estilos[i_comprada] = 'background-color: #FCE5CD; color: black;'
             if i_ruptura >= 0 and '🚨 CRÍTICA' in str(row.get('RUPTURA CRÍTICA', '')):
                 estilos[i_ruptura] = 'background-color: #FFD2D2; color: black; font-weight: bold;'
                 if i_estoque >= 0: estilos[i_estoque] = 'background-color: #FFD2D2; color: black;'
+            
+            # --- DESTACA NA TELA O CÓDIGO SE ELE TINHA ASTERISCO ---
+            if i_asterisco >= 0 and row.get('TEM_ASTERISCO', False):
+                if i_codigo >= 0: estilos[i_codigo] = 'background-color: #FFE599; color: black; font-weight: bold;'
+                
             return estilos
 
-        st.dataframe(df_view.drop(columns=['ORIGINAL_SUGESTAO', 'ORIGINAL_TRANS', 'TRANS_MORTA'], errors='ignore').style.apply(pintar_tabela, axis=1), use_container_width=True)
-
-else: 
-    st.info("A aguardar documentos. Por favor, carregue os ficheiros PDF na barra lateral para iniciar.")
+        st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
