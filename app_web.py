@@ -116,7 +116,7 @@ def extrair_dados_pdf_web(pdf_file):
                         if match:
                             fornecedor_atual = match.group(1).strip()
                     else:
-                        # --- NOVA LÓGICA DE ASTERISCOS ---
+                        # --- LÓGICA DE ASTERISCOS ---
                         tem_asterisco = False
                         if re.match(r'^\*+\s*', l):
                             tem_asterisco = True
@@ -140,7 +140,7 @@ def extrair_dados_pdf_web(pdf_file):
                                     'MESES_ESTOQUE': limpar_v(partes[-1]),
                                     'FILIAL_NOME': nome_filial,
                                     'FORNECEDOR': fornecedor_atual,
-                                    'TEM_ASTERISCO': tem_asterisco # Flag salva para o Excel
+                                    'TEM_ASTERISCO': tem_asterisco # Flag salva para Excel
                                 }
                                 dados.append(item_dict)
                             except: continue
@@ -418,6 +418,7 @@ if uploaded_files:
                     idx_trans_morta = cols_f.index('TRANS_MORTA') + 1
                     idx_asterisco = cols_f.index('TEM_ASTERISCO') + 1
                     idx_codigo = cols_f.index('CODIGO') + 1
+                    idx_estoque = cols_f.index('ESTOQUE') + 1 
                     
                     ws.column_dimensions[get_column_letter(idx_orig_sug)].hidden = True
                     ws.column_dimensions[get_column_letter(idx_orig_trans)].hidden = True
@@ -450,13 +451,17 @@ if uploaded_files:
                     c_ast = PatternFill(start_color="FFE599", end_color="FFE599", fill_type="solid") # Amarelo Ouro
                     font_white = Font(color="FFFFFF", bold=True)
                     
-                    idx_estoque = cols_f.index('ESTOQUE') + 1 
                     idx_comprada = cols_f.index('COMPRADA') + 1 
                     idx_atipica = cols_f.index('VENDA_ATIPICA') + 1
                     idx_parado = cols_f.index('ESTOQUE PARADO') + 1
                     idx_ruptura = cols_f.index('RUPTURA CRÍTICA') + 1
                     
                     for r in range(2, len(ws['A']) + 1):
+                        # --- PINTAR A LINHA ATÉ O ESTOQUE SE TINHA ASTERISCO ---
+                        if ws.cell(r, idx_asterisco).value == True:
+                            for c_idx in range(1, idx_estoque + 1):
+                                ws.cell(r, c_idx).fill = c_ast
+
                         if limpar_v(ws.cell(r, idx_comprada).value) > 0: ws.cell(r, idx_comprada).fill = cl 
                         if limpar_v(ws.cell(r, idx_compra).value) > 0: ws.cell(r, idx_compra).fill = cv 
                         if str(ws.cell(r, idx_transf).value) not in ["0", "None"]: ws.cell(r, idx_transf).fill = ca 
@@ -465,10 +470,6 @@ if uploaded_files:
                         if ws.cell(r, idx_trans_morta).value == True:
                             ws.cell(r, idx_transf).fill = c_morta
                             ws.cell(r, idx_transf).font = font_white
-                            
-                        # --- PINTA O CÓDIGO SE ELE TINHA ASTERISCO ---
-                        if ws.cell(r, idx_asterisco).value == True:
-                            ws.cell(r, idx_codigo).fill = c_ast
                             
                         if "🛑 SIM" in str(ws.cell(r, idx_parado).value): 
                             ws.cell(r, idx_parado).fill = c_red
@@ -583,6 +584,12 @@ if st.session_state.analise_concluida:
             i_asterisco = f_idx('TEM_ASTERISCO')
             i_codigo = f_idx('CODIGO')
             
+            # --- DESTACA NA TELA A LINHA ATÉ O ESTOQUE SE ELE TINHA ASTERISCO ---
+            if i_asterisco >= 0 and row.get('TEM_ASTERISCO', False):
+                if i_estoque >= 0:
+                    for c_idx in range(i_estoque + 1):
+                        estilos[c_idx] = 'background-color: #FFE599; color: black; font-weight: bold;'
+            
             if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
                 estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
                 if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
@@ -595,10 +602,6 @@ if st.session_state.analise_concluida:
             if i_ruptura >= 0 and '🚨 CRÍTICA' in str(row.get('RUPTURA CRÍTICA', '')):
                 estilos[i_ruptura] = 'background-color: #FFD2D2; color: black; font-weight: bold;'
                 if i_estoque >= 0: estilos[i_estoque] = 'background-color: #FFD2D2; color: black;'
-            
-            # --- DESTACA NA TELA O CÓDIGO SE ELE TINHA ASTERISCO ---
-            if i_asterisco >= 0 and row.get('TEM_ASTERISCO', False):
-                if i_codigo >= 0: estilos[i_codigo] = 'background-color: #FFE599; color: black; font-weight: bold;'
                 
             return estilos
 
