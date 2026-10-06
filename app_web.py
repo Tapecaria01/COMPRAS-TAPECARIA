@@ -16,8 +16,18 @@ st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 # --- INICIALIZAÇÃO DE ESTADO (MÚLTIPLOS E REGRAS) ---
 if "df_regras" not in st.session_state:
     st.session_state.df_regras = pd.DataFrame([
-        {"FORNECEDOR": "FORNECEDOR A", "MULTIPLO": 10},
-        {"FORNECEDOR": "FORNECEDOR B", "MULTIPLO": 50},
+        {"FORNECEDOR": "CORTTEX", "MULTIPLO": 50},
+        {"FORNECEDOR": "TEX COMPANY", "MULTIPLO": 50},
+        {"FORNECEDOR": "CIPATEX", "MULTIPLO": 50},
+        {"FORNECEDOR": "KARSTEN", "MULTIPLO": 50},
+        {"FORNECEDOR": "ETRURIA", "MULTIPLO": 50},
+        {"FORNECEDOR": "TELLAIO", "MULTIPLO": 50},
+        {"FORNECEDOR": "OBER", "MULTIPLO": 50},
+        {"FORNECEDOR": "TEXTIL J. SERRANO", "MULTIPLO": 50},
+        {"FORNECEDOR": "CKS", "MULTIPLO": 50},
+        {"FORNECEDOR": "AGRO QUIMICA", "MULTIPLO": 45},
+        {"FORNECEDOR": "ROMPLAS", "MULTIPLO": 30},
+        {"FORNECEDOR": "ROMA DUBLADOS", "MULTIPLO": 10},
         {"FORNECEDOR": "GERAL", "MULTIPLO": 1}
     ])
 
@@ -166,7 +176,7 @@ with st.sidebar:
         nome_final_xlsx = nome_sugerido if nome_sugerido.endswith(".xlsx") else f"{nome_sugerido}.xlsx"
 
     with st.expander("🏭 Fornecedores e Múltiplos"):
-        st.caption("Edite ou adicione regras na última linha vazia.")
+        st.caption("Edite ou adicione regras na tabela abaixo.")
         df_regras_editado = st.data_editor(st.session_state.df_regras, num_rows="dynamic", use_container_width=True, hide_index=True)
         st.session_state.df_regras = df_regras_editado
 
@@ -187,25 +197,25 @@ st.markdown("##### Portal Operacional - Tapeçaria")
 # ====================================================
 if uploaded_files:
     with st.spinner("🔍 Processando arquivos PDF e calculando regras de estoque..."):
-        dfs_por_filial = {}
-        todos_dados = []
-        meses_globais = []
+        try:
+            dfs_por_filial = {}
+            todos_dados = []
+            meses_globais = []
 
-        for f in uploaded_files:
-            df, meses = extrair_dados_pdf_web(f)
-            if not df.empty:
-                dfs_por_filial[f.name.replace(".pdf", "").replace(".PDF", "").upper()] = df
-                todos_dados.append(df)
-                if len(meses) >= 4 and not meses_globais:
-                    meses_globais = meses[:4]
+            for f in uploaded_files:
+                df, meses = extrair_dados_pdf_web(f)
+                if not df.empty:
+                    dfs_por_filial[f.name.replace(".pdf", "").replace(".PDF", "").upper()] = df
+                    todos_dados.append(df)
+                    if len(meses) >= 4 and not meses_globais:
+                        meses_globais = meses[:4]
 
-        if not meses_globais:
-            meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
+            if not meses_globais:
+                meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
 
-        if not todos_dados:
-            st.error("⚠️ O sistema não encontrou produtos compatíveis nos PDFs.")
-        else:
-            try:
+            if not todos_dados:
+                st.error("⚠️ O sistema não encontrou produtos compatíveis nos PDFs.")
+            else:
                 df_global = pd.concat(todos_dados).reset_index(drop=True)
                 df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
 
@@ -219,7 +229,8 @@ if uploaded_files:
                     c = row['CODIGO']
                     est = float(row['ESTOQUE'])
                     med = float(row['MEDIA_SISTEMA'])
-                    excesso = est if med == 0 else max(0.0, est - (med * meta))
+                    # Se média for 0, é estoque morto (100% liberado); senão exige retenção de segurança
+                    excesso = est if med == 0 else max(0.0, est - (med * 3))
                     tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est}
 
                 # Lógica de Sugestão de Compras e Transferências
@@ -293,43 +304,4 @@ if uploaded_files:
                         'COMPRADA': comp,
                         'SUG_COMPRA': qtd_comprar,
                         'SUG_TRANSF': qtd_transf,
-                        'ORIGEM_TRANSF': origem_transf,
-                        'STATUS': status,
-                        'MES_1': row['MES_1'],
-                        'MES_2': row['MES_2'],
-                        'MES_3': row['MES_3'],
-                        'MES_4': row['MES_4']
-                    }
-                    resultados.append(item_resultado)
-
-                df_final = pd.DataFrame(resultados)
-
-                # --- PAINEL DE MÉTRICAS (DASHBOARD KPIs) ---
-                m1, m2, m3, m4 = st.columns(4)
-                txt_comprar = f"{dash_qtd_comprar:,.0f}".replace(",", ".")
-                txt_transf = f"{dash_qtd_transferida:,.0f}".replace(",", ".")
-                
-                m1.metric("Unidades a Comprar", txt_comprar)
-                m2.metric("Unidades a Transferir", txt_transf)
-                m3.metric("Itens em Ruptura", dash_itens_ruptura)
-                m4.metric("Alertas de Pico", dash_itens_pico)
-
-                st.markdown("---")
-
-                # --- ABAS DE INTERFACE ---
-                tab1, tab2, tab3, tab4 = st.tabs(["📊 Visão Geral", "🚨 Top Urgentes", "📦 Estoque Parado", "🔍 Prévia por Filial"])
-
-                with tab1:
-                    st.subheader("Visão Geral do Pedido de Compras")
-                    
-                    # Gráfico Plotly: Distribuição por Status
-                    df_status_count = df_final['STATUS'].apply(lambda x: x.split('/')[0].strip()).value_counts().reset_index()
-                    df_status_count.columns = ['Status', 'Quantidade']
-                    
-                    fig_status = px.bar(
-                        df_status_count, 
-                        x='Status', 
-                        y='Quantidade', 
-                        color='Status',
-                        title="Distribuição de Itens por Categoria de Status",
-                        text_auto=True
+                        'ORIGEM_TRANSF':
