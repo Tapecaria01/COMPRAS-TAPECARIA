@@ -5,7 +5,6 @@ import re
 import math
 import traceback
 import plotly.express as px
-import plotly.graph_objects as go
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
@@ -91,7 +90,7 @@ def extrair_dados_pdf_web(file):
                     # Uma linha válida deve conter ao menos os valores numéricos principais
                     if len(tokens_numericos) >= 8:
                         try:
-                            # Pega os últimos valores da tabela a partir do final da linha
+                            # Pega os últimos valores da tabela do final da linha
                             meses_est = limpar_v(tokens_numericos[-1])
                             
                             comprada = limpar_v(tokens_numericos[-2]) if len(tokens_numericos) >= 9 else 0.0
@@ -182,4 +181,128 @@ with col2:
     st.title("Inteligência de Compras")
 
 st.markdown("##### Portal Operacional - Tapeçaria")
-st.markdown("
+
+# ====================================================
+# === PROCESSAMENTO AUTOMÁTICO ===
+# ====================================================
+if uploaded_files:
+    with st.spinner("🔍 Processando arquivos PDF e calculando regras de estoque..."):
+        dfs_por_filial = {}
+        todos_dados = []
+        meses_globais = []
+
+        for f in uploaded_files:
+            df, meses = extrair_dados_pdf_web(f)
+            if not df.empty:
+                dfs_por_filial[f.name.replace(".pdf", "").replace(".PDF", "").upper()] = df
+                todos_dados.append(df)
+                if len(meses) >= 4 and not meses_globais:
+                    meses_globais = meses[:4]
+
+        if not meses_globais:
+            meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
+
+        if not todos_dados:
+            st.error("⚠️ O sistema não encontrou produtos compatíveis nos PDFs.")
+        else:
+            try:
+                df_global = pd.concat(todos_dados).reset_index(drop=True)
+                df_global['ESTOQUE_DISPONIVEL'] = df_global['ESTOQUE']
+
+                vendas_recentes = df_global['MES_1'] + df_global['MES_2'] + df_global['MES_3'] + df_global['MES_4']
+                df_global['TOTAL_VENDAS_RECENTES'] = vendas_recentes
+
+                # Rastreador de excedentes para cálculo de transferências
+                tracker_estoque = {}
+                for _, row in df_global.iterrows():
+                    f_nome = row['FILIAL_NOME']
+                    c = row['CODIGO']
+                    est = float(row['ESTOQUE'])
+                    med = float(row['MEDIA_SISTEMA'])
+                    excesso = est if med == 0 else max(0.0, est - (med * meta))
+                    tracker_estoque[(f_nome, c)] = {'EXCEDENTE': excesso, 'MEDIA': med, 'ESTOQUE_FINAL': est}
+
+                # Lógica de Sugestão de Compras e Transferências
+                resultados = []
+                dash_qtd_comprar = 0
+                dash_qtd_transferida = 0
+                dash_itens_pico = 0
+                dash_itens_ruptura = 0
+
+                # Mapeamento de múltiplos de fornecedor
+                regras_dict = dict(zip(st.session_state.df_regras['FORNECEDOR'].str.upper(), st.session_state.df_regras['MULTIPLO']))
+                multiplo_padrao = regras_dict.get('GERAL', 1)
+
+                for _, row in df_global.iterrows():
+                    f_nome = row['FILIAL_NOME']
+                    c = row['CODIGO']
+                    med = float(row['MEDIA_SISTEMA'])
+                    est = float(row['ESTOQUE'])
+                    res = float(row['RESERVA'])
+                    comp = float(row['COMPRADA'])
+                    fornecedor = str(row['FORNECEDOR']).upper()
+
+                    # Identificação de Picos
+                    max_venda = max(row['MES_1'], row['MES_2'], row['MES_3'], row['MES_4'])
+                    eh_pico = max_venda > (med * fator_pico) and med > 0
+                    if eh_pico:
+                        dash_itens_pico += 1
+
+                    # Necessidade bruta
+                    necessidade = max(0.0, (med * meta) - (est + comp - res))
+
+                    qtd_transf = 0.0
+                    origem_transf = ""
+
+                    # Tenta buscar transferência de outras filiais com excesso
+                    if necessidade > 0:
+                        dash_itens_ruptura += 1
+                        for (outra_filial, cod_item), dados_est in tracker_estoque.items():
+                            if cod_item == c and outra_filial != f_nome and dados_est['EXCEDENTE'] > 0:
+                                qtd_atendida = min(necessidade, dados_est['EXCEDENTE'])
+                                qtd_transf += qtd_atendida
+                                dados_est['EXCEDENTE'] -= qtd_atendida
+                                necessidade -= qtd_atendida
+                                origem_transf = outra_filial
+                                dash_qtd_transferida += qtd_atendida
+                                if necessidade == 0:
+                                    break
+
+                    # Múltiplo de embalagem/fornecedor
+                    mult = regras_dict.get(fornecedor, multiplo_padrao)
+                    qtd_comprar = math.ceil(necessidade / mult) * mult if necessidade > 0 else 0
+                    dash_qtd_comprar += qtd_comprar
+
+                    # Status visual
+                    if qtd_comprar > 0:
+                        status = "🔴 RUPTURA / COMPRAR"
+                    elif qtd_transf > 0:
+                        status = f"🔵 TRANSFERIR DE {origem_transf}"
+                    elif med == 0 and est > 0:
+                        status = "🟡 EXCESSO / SEM GIRO"
+                    else:
+                        status = "🟢 OK"
+
+                    resultados.append({
+                        'FILIAL': f_nome,
+                        'CODIGO': c,
+                        'DESCRICAO': row['DESCRICAO'],
+                        'FORNECEDOR': fornecedor,
+                        'MEDIA': med,
+                        'ESTOQUE': est,
+                        'COMPRADA': comp,
+                        'SUG_COMPRA': qtd_comprar,
+                        'SUG_TRANSF': qtd_transf,
+                        'ORIGEM_TRANSF': origem_transf,
+                        'STATUS': status,
+                        'MES_1': row['MES_1'],
+                        'MES_2': row['MES_2'],
+                        'MES_3': row['MES_3'],
+                        'MES_4': row['MES_4']
+                    })
+
+                df_final = pd.DataFrame(resultados)
+
+                # --- PAINEL DE MÉTRICAS (DASHBOARD KPIs) ---
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Unidades a Comprar", f"{dash_qtd_comprar:
