@@ -283,7 +283,7 @@ if uploaded_files:
                     else:
                         status = "🟢 OK"
 
-                    resultados.append({
+                    item_resultado = {
                         'FILIAL': f_nome,
                         'CODIGO': c,
                         'DESCRICAO': row['DESCRICAO'],
@@ -297,4 +297,67 @@ if uploaded_files:
                         'STATUS': status,
                         'MES_1': row['MES_1'],
                         'MES_2': row['MES_2'],
-                        'MES_3
+                        'MES_3': row['MES_3'],
+                        'MES_4': row['MES_4']
+                    }
+                    resultados.append(item_resultado)
+
+                df_final = pd.DataFrame(resultados)
+
+                # --- PAINEL DE MÉTRICAS (DASHBOARD KPIs) ---
+                m1, m2, m3, m4 = st.columns(4)
+                txt_comprar = f"{dash_qtd_comprar:,.0f}".replace(",", ".")
+                txt_transf = f"{dash_qtd_transferida:,.0f}".replace(",", ".")
+                
+                m1.metric("Unidades a Comprar", txt_comprar)
+                m2.metric("Unidades a Transferir", txt_transf)
+                m3.metric("Itens em Ruptura", dash_itens_ruptura)
+                m4.metric("Alertas de Pico", dash_itens_pico)
+
+                st.markdown("---")
+
+                # --- ABAS DE INTERFACE ---
+                tab1, tab2, tab3, tab4 = st.tabs(["📊 Visão Geral", "🚨 Top Urgentes", "📦 Estoque Parado", "🔍 Prévia por Filial"])
+
+                with tab1:
+                    st.subheader("Visão Geral do Pedido de Compras")
+                    
+                    # Gráfico Plotly: Distribuição por Status
+                    df_status_count = df_final['STATUS'].apply(lambda x: x.split('/')[0].strip()).value_counts().reset_index()
+                    df_status_count.columns = ['Status', 'Quantidade']
+                    
+                    fig_status = px.bar(
+                        df_status_count, 
+                        x='Status', 
+                        y='Quantidade', 
+                        color='Status',
+                        title="Distribuição de Itens por Categoria de Status",
+                        text_auto=True
+                    )
+                    st.plotly_chart(fig_status, use_container_width=True)
+
+                    df_view = df_final[['FILIAL', 'CODIGO', 'DESCRICAO', 'FORNECEDOR', 'MEDIA', 'ESTOQUE', 'COMPRADA', 'SUG_COMPRA', 'SUG_TRANSF', 'STATUS']]
+                    st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
+
+                with tab2:
+                    st.subheader("🚨 Itens em Ruptura Crítica (Necessidade Imediata de Compra)")
+                    df_ruptura = df_final[df_final['SUG_COMPRA'] > 0].sort_values(by='SUG_COMPRA', ascending=False)
+                    if not df_ruptura.empty:
+                        st.dataframe(df_ruptura[['FILIAL', 'CODIGO', 'DESCRICAO', 'FORNECEDOR', 'MEDIA', 'ESTOQUE', 'SUG_COMPRA']], use_container_width=True)
+                    else:
+                        st.success("Nenhum item em ruptura crítica no momento!")
+
+                with tab3:
+                    st.subheader("📦 Itens com Estoque Parado / Sem Giro")
+                    df_parado = df_final[(df_final['MEDIA'] == 0) & (df_final['ESTOQUE'] > 0)].sort_values(by='ESTOQUE', ascending=False)
+                    if not df_parado.empty:
+                        st.dataframe(df_parado[['FILIAL', 'CODIGO', 'DESCRICAO', 'FORNECEDOR', 'ESTOQUE']], use_container_width=True)
+                    else:
+                        st.success("Nenhum produto com estoque parado e sem vendas encontrado!")
+
+                with tab4:
+                    st.subheader("🔍 Filtrar Dados por Unidade / Filial")
+                    filiais_disponiveis = df_final['FILIAL'].unique().tolist()
+                    filial_sel = st.selectbox("Selecione a Filial:", filiais_disponiveis)
+                    df_filial = df_final[df_final['FILIAL'] == filial_sel]
+                    
