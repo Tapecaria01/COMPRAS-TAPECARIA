@@ -333,31 +333,3 @@ if uploaded_files:
                         color='Status',
                         title="Distribuição de Itens por Categoria de Status",
                         text_auto=True
-                    )
-                    st.plotly_chart(fig_status, use_container_width=True)
-
-                    df_view = df_final[['FILIAL', 'CODIGO', 'DESCRICAO', 'FORNECEDOR', 'MEDIA', 'ESTOQUE', 'COMPRADA', 'SUG_COMPRA', 'SUG_TRANSF', 'STATUS']]
-                    st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
-
-                with tab2:
-                    st.subheader("🚨 Itens em Ruptura Crítica (Necessidade Imediata de Compra)")
-                    df_ruptura = df_final[df_final['SUG_COMPRA'] > 0].sort_values(by='SUG_COMPRA', ascending=False)
-                    if not df_ruptura.empty:
-                        st.dataframe(df_ruptura[['FILIAL', 'CODIGO', 'DESCRICAO', 'FORNECEDOR', 'MEDIA', 'ESTOQUE', 'SUG_COMPRA']], use_container_width=True)
-                    else:
-                        st.success("Nenhum item em ruptura crítica no momento!")
-
-                with tab3:
-                    st.subheader("📦 Itens com Estoque Parado / Sem Giro")
-                    df_parado = df_final[(df_final['MEDIA'] == 0) & (df_final['ESTOQUE'] > 0)].sort_values(by='ESTOQUE', ascending=False)
-                    if not df_parado.empty:
-                        st.dataframe(df_parado[['FILIAL', 'CODIGO', 'DESCRICAO', 'FORNECEDOR', 'ESTOQUE']], use_container_width=True)
-                    else:
-                        st.success("Nenhum produto com estoque parado e sem vendas encontrado!")
-
-                with tab4:
-                    st.subheader("🔍 Filtrar Dados por Unidade / Filial")
-                    filiais_disponiveis = df_final['FILIAL'].unique().tolist()
-                    filial_sel = st.selectbox("Selecione a Filial:", filiais_disponiveis)
-                    df_filial = df_final[df_final['FILIAL'] == filial_sel]
-                    
