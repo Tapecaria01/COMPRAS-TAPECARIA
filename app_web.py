@@ -297,12 +297,4 @@ if uploaded_files:
                         'STATUS': status,
                         'MES_1': row['MES_1'],
                         'MES_2': row['MES_2'],
-                        'MES_3': row['MES_3'],
-                        'MES_4': row['MES_4']
-                    })
-
-                df_final = pd.DataFrame(resultados)
-
-                # --- PAINEL DE MÉTRICAS (DASHBOARD KPIs) ---
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Unidades a Comprar", f"{dash_qtd_comprar:
+                        'MES_3
