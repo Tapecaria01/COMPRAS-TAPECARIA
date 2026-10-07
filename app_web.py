@@ -336,11 +336,36 @@ if arquivos and st.sidebar.button("🚀 Processar relatórios", type="primary"):
         st.code(traceback.format_exc())
 
 if st.session_state.get("analise_concluida", False):
-    dfs = st.session_state.dfs_por_filial; meses = st.session_state.meses_globais
+    dfs = st.session_state.get("dfs_por_filial", {})
+    meses = st.session_state.get("meses_globais", ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"])
+
+    # Compatibilidade com sessões antigas: garante que todas as colunas novas
+    # existam mesmo se o usuário atualizou o código sem clicar em Processar.
+    colunas_novas = {
+        "SUGESTAO COMPRA": 0.0,
+        "SUGESTAO TRANSFERENCIA": 0.0,
+        "ORIGEM TRANSFERENCIA": "",
+        "DESTINO TRANSFERENCIA": "",
+        "RUPTURA CRÍTICA": 0,
+        "VENDA_ATIPICA": 0,
+        "ESTOQUE PARADO": 0.0,
+        "PARADO_90D": 0,
+        "MEDIA": 0.0,
+    }
+    for _filial, _df in dfs.items():
+        for _col, _valor in colunas_novas.items():
+            if _col not in _df.columns:
+                _df[_col] = _valor
+        dfs[_filial] = _df
+
+    if not dfs:
+        st.info("Importe os PDFs e clique em Processar relatórios.")
+        st.stop()
+
     all_df = pd.concat(dfs.values(), ignore_index=True)
-    compra = pd.to_numeric(all_df["SUGESTAO COMPRA"], errors="coerce").fillna(0).sum()
-    transf = pd.to_numeric(all_df["SUGESTAO TRANSFERENCIA"], errors="coerce").fillna(0).sum()
-    ruptura = int(all_df["RUPTURA CRÍTICA"].sum()); parado = pd.to_numeric(all_df["ESTOQUE PARADO"], errors="coerce").fillna(0).sum(); p90 = int(all_df["PARADO_90D"].sum())
+    compra = pd.to_numeric(all_df.get("SUGESTAO COMPRA", 0), errors="coerce").fillna(0).sum()
+    transf = pd.to_numeric(all_df.get("SUGESTAO TRANSFERENCIA", 0), errors="coerce").fillna(0).sum()
+    ruptura = int(pd.to_numeric(all_df.get("RUPTURA CRÍTICA", 0), errors="coerce").fillna(0).sum()); parado = pd.to_numeric(all_df.get("ESTOQUE PARADO", 0), errors="coerce").fillna(0).sum(); p90 = int(pd.to_numeric(all_df.get("PARADO_90D", 0), errors="coerce").fillna(0).sum())
     st.title("📊 Portal Compras - Tapeçaria")
     st.caption("Período identificado: **" + " | ".join(meses) + "**")
     a,b,c,d,e = st.columns(5)
