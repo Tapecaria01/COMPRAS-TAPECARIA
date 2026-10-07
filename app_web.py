@@ -142,14 +142,18 @@ def extrair_dados_pdf_web(file):
 
     return df_res, meses_cabecalho
 
-# --- FUNÇÃO DE GERAÇÃO DO EXCEL ---
+# --- FUNÇÃO DE GERAÇÃO DO EXCEL (MODELO ESPUMAUTO) ---
 def gerar_excel_relatorio(dfs_por_filial, meses_cabecalho):
     wb = Workbook()
-    wb.remove(wb.active)
+    wb.remove(wb.active)  # Remove aba inicial por defeito
 
+    # Estilos Visuais
     header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
     header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
     data_font = Font(name="Calibri", size=10)
+    font_bold = Font(name="Calibri", size=10, bold=True)
+    font_white = Font(name="Calibri", size=10, color="FFFFFF", bold=True)
+    
     border_thin = Border(
         left=Side(style='thin', color='D9D9D9'),
         right=Side(style='thin', color='D9D9D9'),
@@ -157,12 +161,12 @@ def gerar_excel_relatorio(dfs_por_filial, meses_cabecalho):
         bottom=Side(style='thin', color='D9D9D9')
     )
 
+    # Cores de Destaque das Células
     fill_parado = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
     fill_atipico = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     fill_compra = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
     fill_transf = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
     fill_transf_morto = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
-    font_white = Font(name="Calibri", size=10, color="FFFFFF", bold=True)
     fill_comprada = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
     fill_ruptura = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid")
 
@@ -183,15 +187,17 @@ def gerar_excel_relatorio(dfs_por_filial, meses_cabecalho):
     ]
 
     for nome_f, df_f in dfs_por_filial.items():
-        ws = wb.create_sheet(title=nome_f[:30])
+        ws = wb.create_sheet(title=str(nome_f)[:30])
         ws.views.sheetView[0].showGridLines = True
 
+        # Cabeçalhos com Formatação do Modelo
         for col_idx, text_h in enumerate(cabecalhos_personalizados, 1):
             cell = ws.cell(row=1, column=col_idx, value=text_h)
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
+        # Preenchimento dos dados por linha
         for row_idx, (_, row) in enumerate(df_f.iterrows(), 2):
             for col_idx, col_name in enumerate(cols_export, 1):
                 val = row.get(col_name, '')
@@ -199,18 +205,21 @@ def gerar_excel_relatorio(dfs_por_filial, meses_cabecalho):
                 cell.font = data_font
                 cell.border = border_thin
 
+                # Formatação Numérica e Alinhamentos
                 if col_name in ['MES_1', 'MES_2', 'MES_3', 'MES_4', 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'SUGESTAO COMPRA']:
                     cell.number_format = '#,##0.00'
-                    cell.alignment = Alignment(horizontal="right")
+                    cell.alignment = Alignment(horizontal="right", vertical="center")
                 else:
-                    cell.alignment = Alignment(horizontal="center" if col_name not in ['DESCRICAO', 'FORNECEDOR'] else "left")
+                    cell.alignment = Alignment(horizontal="center" if col_name not in ['DESCRICAO', 'FORNECEDOR'] else "left", vertical="center")
 
+                # Destaques Condicionais
                 if col_name in ['ESTOQUE PARADO', 'ESTOQUE'] and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
                     cell.fill = fill_parado
                 if col_name == 'VENDA_ATIPICA' and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')):
                     cell.fill = fill_atipico
                 if col_name == 'SUGESTAO COMPRA' and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0:
                     cell.fill = fill_compra
+                    cell.font = font_bold
                 if col_name == 'TRANS INTERNA' and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
                     if 'ESTOQUE MORTO' in str(row.get('TRANS INTERNA', '')):
                         cell.fill = fill_transf_morto
@@ -221,7 +230,9 @@ def gerar_excel_relatorio(dfs_por_filial, meses_cabecalho):
                     cell.fill = fill_comprada
                 if col_name in ['RUPTURA CRÍTICA', 'ESTOQUE'] and '🚨 CRÍTICA' in str(row.get('RUPTURA CRÍTICA', '')):
                     cell.fill = fill_ruptura
+                    cell.font = font_bold
 
+        # Ajuste de largura das colunas
         for col in ws.columns:
             max_len = max(len(str(cell.value or '')) for cell in col)
             col_letter = get_column_letter(col[0].column)
