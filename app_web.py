@@ -12,6 +12,10 @@ from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 
+# Chave do uploader para permitir limpar a análise e importar novos PDFs
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
 SENHA = "Tape2026"
 REGRAS_PADRAO = [
     ["CORTTEX", 50, 20], ["TEX COMPANY", 50, 20], ["CIPATEX", 50, 20],
@@ -303,8 +307,22 @@ with st.sidebar:
     st.markdown("---")
     st.header("📂 Nova Compra")
     uploaded_files = st.file_uploader(
-        "Selecione os PDFs das Unidades", type="pdf", accept_multiple_files=True
+        "Selecione os PDFs das Unidades",
+        type="pdf",
+        accept_multiple_files=True,
+        key=f"pdf_uploader_{st.session_state.uploader_key}",
     )
+
+    # Mantém o padrão do dashboard e apenas adiciona a ação solicitada:
+    # limpar a análise atual para permitir importar novos fornecedores/relatórios.
+    if st.button("🗑️ Limpar análise", use_container_width=True):
+        for chave in [
+            "dfs_por_filial", "meses_globais", "analise_concluida",
+        ]:
+            st.session_state.pop(chave, None)
+        st.session_state.uploader_key += 1
+        st.rerun()
+
     st.markdown("---")
 
     with st.expander("⚙️ Configurações Avançadas"):
