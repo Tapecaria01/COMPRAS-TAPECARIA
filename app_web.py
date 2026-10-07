@@ -200,14 +200,15 @@ def preparar_export(df, meses):
         if origem in x.columns:
             x[destino] = x[origem]
 
-    # Mantém o padrão tabular anterior; só entram as novas colunas solicitadas.
+    # PADRÃO ORIGINAL DO EXCEL: manter a mesma estrutura de colunas.
+    # A única coluna nova solicitada pelo usuário fica imediatamente após
+    # SUGESTAO COMPRA: SUGESTAO TRANSFERENCIA.
+    # Não exportar origem/destino, PARADO_90D ou colunas auxiliares do dashboard.
     ordem = [
         "FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.",
         meses[0], meses[1], meses[2], meses[3], "MEDIA",
         "ESTOQUE", "RESERVA", "COMPRADA", "SUGESTAO COMPRA",
-        "SUGESTAO TRANSFERENCIA", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA",
-        "RUPTURA CRÍTICA", "VENDA_ATIPICA", "ESTOQUE PARADO", "PARADO_90D",
-        "SITUACAO", "MESES_ESTOQUE", "FORNECEDOR"
+        "SUGESTAO TRANSFERENCIA", "SITUACAO", "MESES_ESTOQUE", "FORNECEDOR"
     ]
     for c in ordem:
         if c not in x.columns:
@@ -251,9 +252,7 @@ def escrever_planilha(ws, df):
     heads = {cell.value: cell.column for cell in ws[1]}
     destaques = {
         "SUGESTAO COMPRA": "E2F0D9",
-        "SUGESTAO TRANSFERENCIA": "DDEBF7",
         "RUPTURA CRÍTICA": "F4CCCC",
-        "PARADO_90D": "FCE4D6",
     }
     for nome, cor in destaques.items():
         if nome in heads:
@@ -268,25 +267,24 @@ def escrever_planilha(ws, df):
 
 
 def gerar_excel(dfs_por_filial, meses):
-    """Exportação mantendo o padrão anterior: uma aba por filial, sem filtros."""
+    """
+    Exportação no padrão original: UMA ÚNICA ABA consolidada.
+    Não cria abas por filial e não adiciona filtros.
+    """
+    partes = []
+    for _, df in dfs_por_filial.items():
+        if df is not None and not df.empty:
+            partes.append(preparar_export(df, list(meses)))
+
+    if partes:
+        consolidado = pd.concat(partes, ignore_index=True)
+    else:
+        consolidado = pd.DataFrame()
+
     wb = Workbook()
-    wb.remove(wb.active)
-    usados = set()
-
-    for filial, df in dfs_por_filial.items():
-        base = re.sub(r'[\[\]:*?/\\]', '_', str(filial))[:31] or "FILIAL"
-        nome = base
-        contador = 2
-        while nome in usados:
-            sufixo = f"_{contador}"
-            nome = base[:31-len(sufixo)] + sufixo
-            contador += 1
-        usados.add(nome)
-        ws = wb.create_sheet(nome)
-        escrever_planilha(ws, preparar_export(df, list(meses)))
-
-    if not wb.sheetnames:
-        wb.create_sheet("RELATORIO")
+    ws = wb.active
+    ws.title = "RELATORIO"
+    escrever_planilha(ws, consolidado)
 
     buffer = BytesIO()
     wb.save(buffer)
