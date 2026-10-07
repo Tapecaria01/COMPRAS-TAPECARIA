@@ -187,104 +187,135 @@ def coluna_numerica(df, coluna, padrao=0):
     return pd.to_numeric(df[coluna], errors="coerce").fillna(padrao)
 
 
-def preparar_export(df, meses):
+def preparar_export_filial(df, meses):
+    """Monta uma aba no mesmo padrão do arquivo-modelo antigo."""
     x = df.copy()
+    meses = list(meses[:4])
     while len(meses) < 4:
         meses.append(f"MÊS {len(meses)+1}")
 
     mapa = {
         "MES_1": meses[0], "MES_2": meses[1], "MES_3": meses[2], "MES_4": meses[3],
-        "MEDIA_SISTEMA": "MEDIA",
+        "MEDIA_SISTEMA": "MEDIA", "MESES_ESTOQUE": "MESES",
     }
     for origem, destino in mapa.items():
         if origem in x.columns:
             x[destino] = x[origem]
 
-    # PADRÃO ORIGINAL DO EXCEL: manter a mesma estrutura de colunas.
-    # A única coluna nova solicitada pelo usuário fica imediatamente após
-    # SUGESTAO COMPRA: SUGESTAO TRANSFERENCIA.
-    # Não exportar origem/destino, PARADO_90D ou colunas auxiliares do dashboard.
+    # PADRÃO DO EXCEL ANTIGO: uma aba por filial e sem FILIAL_NOME.
+    # Mantemos as colunas do modelo. A coluna ORIGINAL_TRANS é substituída
+    # pela nova SUGESTAO TRANSFERENCIA, na mesma posição, imediatamente após
+    # SUGESTAO COMPRA.
     ordem = [
-        "FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.",
-        meses[0], meses[1], meses[2], meses[3], "MEDIA",
-        "ESTOQUE", "RESERVA", "COMPRADA", "SUGESTAO COMPRA",
-        "SUGESTAO TRANSFERENCIA", "SITUACAO", "MESES_ESTOQUE", "FORNECEDOR"
+        "CODIGO", "DESCRICAO", "EMB.",
+        meses[0], meses[1], meses[2], meses[3],
+        "MEDIA", "ESTOQUE", "RESERVA", "COMPRADA", "MESES",
+        "SUGESTAO COMPRA", "SUGESTAO TRANSFERENCIA",
+        "VENDA_ATIPICA", "ESTOQUE PARADO", "RUPTURA CRÍTICA",
+        "ORIGINAL_SUGESTAO", "TRANS_MORTA", "TEM_ASTERISCO"
     ]
+
+    # Campos do modelo antigo.
+    if "ORIGINAL_SUGESTAO" not in x.columns:
+        x["ORIGINAL_SUGESTAO"] = x.get("SUGESTAO COMPRA", 0)
+    if "TRANS_MORTA" not in x.columns:
+        x["TRANS_MORTA"] = (coluna_numerica(x, "SUGESTAO TRANSFERENCIA") > 0).map({True: "SIM", False: "NÃO"})
+    if "TEM_ASTERISCO" not in x.columns:
+        x["TEM_ASTERISCO"] = False
+
     for c in ordem:
         if c not in x.columns:
-            x[c] = ""
+            x[c] = 0 if c not in {"DESCRICAO", "EMB."} else ""
+
     x = x[ordem]
 
-    texto = {"FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA", "FORNECEDOR"}
+    texto = {"DESCRICAO", "EMB."}
     for c in x.columns:
         if c not in texto:
+            # Preserve booleans/textos de controle do modelo.
+            if c in {"TEM_ASTERISCO", "TRANS_MORTA"} and x[c].dtype == object:
+                continue
             x[c] = pd.to_numeric(x[c], errors="coerce").fillna(0)
+
     return x
 
 
-def escrever_planilha(ws, df):
-    if df.empty:
-        return
+def _escrever_aba_modelo(ws, df):
+    """Escreve o Excel visualmente no padrão do modelo antigo."""
+    # Cores/estilo do modelo ESPUMAUTO.xlsx
+    amarelo = PatternFill("solid", fgColor="FFE599")
+    fonte = Font(bold=True)
+    alinhamento_cab = Alignment(horizontal="center", vertical="center")
+
     for col, nome in enumerate(df.columns, 1):
-        ws.cell(1, col, nome)
+        cell = ws.cell(1, col, nome)
+        cell.fill = amarelo
+        cell.font = fonte
+        cell.alignment = alinhamento_cab
+
     for row in df.itertuples(index=False, name=None):
-        vals = []
+        valores = []
         for value in row:
             if pd.isna(value):
-                vals.append("")
-            elif isinstance(value, (int, float)) and float(value).is_integer():
-                vals.append(int(value))
+                valores.append(None)
+            elif isinstance(value, float) and value.is_integer():
+                valores.append(int(value))
             else:
-                vals.append(value)
-        ws.append(vals)
+                valores.append(value)
+        ws.append(valores)
 
-    header_fill = PatternFill("solid", fgColor="17365D")
-    header_font = Font(color="FFFFFF", bold=True)
-    for cell in ws[1]:
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-
-    # Importante: não colocar AutoFilter/Tabela. O Excel abre sem filtros.
+    # O modelo antigo não usa filtros e congela a primeira linha.
     ws.auto_filter.ref = None
     ws.freeze_panes = "A2"
 
-    heads = {cell.value: cell.column for cell in ws[1]}
-    destaques = {
-        "SUGESTAO COMPRA": "E2F0D9",
-        "RUPTURA CRÍTICA": "F4CCCC",
+    # Larguras iguais ao padrão do arquivo antigo.
+    larguras = {
+        "A": 8.0, "B": 42.0, "C": 6.0,
+        "D": 10.0, "E": 11.86, "F": 11.31, "G": 11.73,
+        "H": 7.0, "I": 10.76, "J": 13.0, "K": 12.98,
+        "L": 7.0, "M": 20.91, "N": 17.43, "O": 19.52,
+        "P": 19.66, "Q": 19.0, "R": 13.0, "S": 13.0, "T": 15.0,
     }
-    for nome, cor in destaques.items():
-        if nome in heads:
-            fill = PatternFill("solid", fgColor=cor)
-            for r in range(2, ws.max_row + 1):
-                ws.cell(r, heads[nome]).fill = fill
+    for letra, largura in larguras.items():
+        ws.column_dimensions[letra].width = largura
 
-    for i in range(1, ws.max_column + 1):
-        letra = get_column_letter(i)
-        maior = max((len(str(ws.cell(r, i).value or "")) for r in range(1, ws.max_row + 1)), default=10)
-        ws.column_dimensions[letra].width = min(max(maior + 2, 10), 45)
+    ws.row_dimensions[1].height = 15
+    for r in range(2, ws.max_row + 1):
+        ws.row_dimensions[r].height = 15
+
+    # Alinhamentos do modelo.
+    for r in range(2, ws.max_row + 1):
+        ws.cell(r, 1).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(r, 2).alignment = Alignment(vertical="bottom")
+        for c in range(3, ws.max_column + 1):
+            ws.cell(r, c).alignment = Alignment(horizontal="center", vertical="center")
 
 
 def gerar_excel(dfs_por_filial, meses):
-    """
-    Exportação no padrão original: UMA ÚNICA ABA consolidada.
-    Não cria abas por filial e não adiciona filtros.
-    """
-    partes = []
-    for _, df in dfs_por_filial.items():
-        if df is not None and not df.empty:
-            partes.append(preparar_export(df, list(meses)))
-
-    if partes:
-        consolidado = pd.concat(partes, ignore_index=True)
-    else:
-        consolidado = pd.DataFrame()
-
+    """Exporta exatamente no padrão antigo: uma aba para cada filial."""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "RELATORIO"
-    escrever_planilha(ws, consolidado)
+    wb.remove(wb.active)
+
+    usadas = set()
+    for nome_filial, df in dfs_por_filial.items():
+        if df is None or df.empty:
+            continue
+        base = re.sub(r"[\\/*?:\[\]]", "-", str(nome_filial)).strip() or "FILIAL"
+        base = base[:31]
+        nome_aba = base
+        n = 2
+        while nome_aba in usadas:
+            sufixo = f"_{n}"
+            nome_aba = base[:31-len(sufixo)] + sufixo
+            n += 1
+        usadas.add(nome_aba)
+
+        ws = wb.create_sheet(title=nome_aba)
+        export_df = preparar_export_filial(df, meses)
+        _escrever_aba_modelo(ws, export_df)
+
+    if not wb.sheetnames:
+        wb.create_sheet("RELATORIO")
 
     buffer = BytesIO()
     wb.save(buffer)
@@ -504,12 +535,10 @@ if st.session_state.get("analise_concluida", False):
 
     st.caption("Período identificado: **" + " | ".join(meses) + "**")
 
-    a, b, c, d, e = st.columns(5)
+    a, b, c = st.columns(3)
     a.metric("Sugestão compra", f"{compra:,.0f}".replace(",", "."))
     b.metric("Transferências", f"{transf:,.0f}".replace(",", "."))
     c.metric("Rupturas", ruptura)
-    d.metric("Estoque parado", f"{parado:,.0f}".replace(",", "."))
-    e.metric("Parados +90d", p90)
 
     # Botão de exportação, sem filtros no arquivo.
     try:
@@ -536,8 +565,6 @@ if st.session_state.get("analise_concluida", False):
                 "FILIAL": filial,
                 "SUGESTÃO COMPRA": coluna_numerica(df, "SUGESTAO COMPRA").sum(),
                 "TRANSFERÊNCIAS": coluna_numerica(df, "SUGESTAO TRANSFERENCIA").sum(),
-                "RUPTURAS": int(coluna_numerica(df, "RUPTURA CRÍTICA").sum()),
-                "PARADOS +90D": int(coluna_numerica(df, "PARADO_90D").sum()),
             })
         st.dataframe(pd.DataFrame(resumo), use_container_width=True, hide_index=True)
 
