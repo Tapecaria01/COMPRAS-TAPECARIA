@@ -142,6 +142,102 @@ def extrair_dados_pdf_web(file):
 
     return df_res, meses_cabecalho
 
+# --- FUNÇÃO DE GERAÇÃO DO EXCEL ---
+def gerar_excel_relatorio(dfs_por_filial, meses_cabecalho):
+    wb = Workbook()
+    wb.remove(wb.active)  # Remove aba padrão
+
+    # Estilos
+    header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+    header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    data_font = Font(name="Calibri", size=10)
+    border_thin = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9')
+    )
+
+    fill_parado = PatternFill(start_color="F4CCCC", end_color="F4CCCC", fill_type="solid")
+    fill_atipico = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+    fill_compra = PatternFill(start_color="D9EAD3", end_color="D9EAD3", fill_type="solid")
+    fill_transf = PatternFill(start_color="C9DAF8", end_color="C9DAF8", fill_type="solid")
+    fill_transf_morto = PatternFill(start_color="C55A11", end_color="C55A11", fill_type="solid")
+    font_white = Font(name="Calibri", size=10, color="FFFFFF", bold=True)
+    fill_comprada = PatternFill(start_color="FCE5CD", end_color="FCE5CD", fill_type="solid")
+    fill_ruptura = PatternFill(start_color="FFD2D2", end_color="FFD2D2", fill_type="solid")
+
+    cols_export = [
+        'CODIGO', 'DESCRICAO', 'EMB.', 
+        'MES_1', 'MES_2', 'MES_3', 'MES_4', 
+        'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 
+        'SUGESTAO COMPRA', 'TRANS INTERNA', 'RUPTURA CRÍTICA', 
+        'VENDA_ATIPICA', 'ESTOQUE PARADO', 'FORNECEDOR'
+    ]
+
+    cabecalhos_personalizados = [
+        'CÓDIGO', 'DESCRIÇÃO', 'EMB.', 
+        meses_cabecalho[0], meses_cabecalho[1], meses_cabecalho[2], meses_cabecalho[3], 
+        'MÉDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 
+        'SUGESTÃO COMPRA', 'TRANS. INTERNA', 'RUPTURA CRÍTICA', 
+        'VENDA ATÍPICA', 'ESTOQUE PARADO', 'FORNECEDOR'
+    ]
+
+    for nome_f, df_f in dfs_por_filial.items():
+        ws = wb.create_sheet(title=nome_f[:30])
+        ws.views.sheetView[0].showGridLines = True
+
+        # Escrever Cabeçalhos
+        for col_idx, text_h in enumerate(cabecalhos_personalizados, 1):
+            cell = ws.cell(row=1, column=col_idx, value=text_h)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        # Escrever Dados
+        for row_idx, (_, row) in enumerate(df_f.iterrows(), 2):
+            for col_idx, col_name in enumerate(cols_export, 1):
+                val = row.get(col_name, '')
+                cell = ws.cell(row=row_idx, column=col_idx, value=val)
+                cell.font = data_font
+                cell.border = border_thin
+
+                # Formatação numéricas
+                if col_name in ['MES_1', 'MES_2', 'MES_3', 'MES_4', 'MEDIA', 'ESTOQUE', 'RESERVA', 'COMPRADA', 'SUGESTAO COMPRA']:
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = Alignment(horizontal="right")
+                else:
+                    cell.alignment = Alignment(horizontal="center" if col_name not in ['DESCRICAO', 'FORNECEDOR'] else "left")
+
+                # Estilização visual no Excel
+                if col_name in ['ESTOQUE PARADO', 'ESTOQUE'] and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
+                    cell.fill = fill_parado
+                if col_name == 'VENDA_ATIPICA' and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')):
+                    cell.fill = fill_atipico
+                if col_name == 'SUGESTAO COMPRA' and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0:
+                    cell.fill = fill_compra
+                if col_name == 'TRANS INTERNA' and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
+                    if 'ESTOQUE MORTO' in str(row.get('TRANS INTERNA', '')):
+                        cell.fill = fill_transf_morto
+                        cell.font = font_white
+                    else:
+                        cell.fill = fill_transf
+                if col_name == 'COMPRADA' and pd.to_numeric(row.get('COMPRADA', 0), errors='coerce') > 0:
+                    cell.fill = fill_comprada
+                if col_name in ['RUPTURA CRÍTICA', 'ESTOQUE'] and '🚨 CRÍTICA' in str(row.get('RUPTURA CRÍTICA', '')):
+                    cell.fill = fill_ruptura
+
+        # Auto-ajuste da largura das colunas
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or '')) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
 # --- INTERFACE WEB (BARRA LATERAL) ---
 with st.sidebar:
     try:
@@ -326,6 +422,7 @@ if uploaded_files:
                 df_p = df_global[(df_global['TOTAL_VENDAS_RECENTES'] == 0) & (df_global['ESTOQUE_DISPONIVEL'] > 0)].copy()
 
                 st.session_state.dfs_por_filial = dfs_por_filial
+                st.session_state.meses_globais = meses_globais
                 st.session_state.dash_qtd_comprar = dash_qtd_comprar
                 st.session_state.dash_qtd_transferida = dash_qtd_transferida
                 st.session_state.dash_itens_pico = dash_itens_pico
@@ -340,6 +437,7 @@ if uploaded_files:
 # --- RENDERIZAÇÃO DAS ABAS DE RESULTADO ---
 if st.session_state.get('analise_concluida', False):
     dfs_por_filial = st.session_state.dfs_por_filial
+    meses_globais = st.session_state.meses_globais
     dash_qtd_comprar = st.session_state.dash_qtd_comprar
     dash_qtd_transferida = st.session_state.dash_qtd_transferida
     dash_itens_pico = st.session_state.dash_itens_pico
@@ -364,73 +462,17 @@ if st.session_state.get('analise_concluida', False):
 
         st.success("✅ Processamento concluído com sucesso!")
 
+        st.markdown("---")
+        st.subheader("📥 Exportar Resultados")
+        
+        excel_bytes = gerar_excel_relatorio(dfs_por_filial, meses_globais)
+        st.download_button(
+            label="📥 Baixar Relatório Excel Completo (.xlsx)",
+            data=excel_bytes,
+            file_name=nome_final_xlsx,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
+
     with tab2:
-        df_all = pd.concat(dfs_por_filial.values())
-        df_rupturas = df_all[df_all['RUPTURA CRÍTICA'] == "🚨 CRÍTICA"].sort_values(by='MEDIA', ascending=False)
-        if not df_rupturas.empty:
-            st.error("🚨 PRODUTOS EM RUPTURA CRÍTICA DETECTADOS (Estoque Zero + Sem Pedido em Andamento)")
-            st.dataframe(df_rupturas[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'MEDIA', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
-        else:
-            st.success("✅ Nenhuma ruptura crítica absoluta detectada nas filiais!")
-
-        st.markdown("<br><hr>", unsafe_allow_html=True)
-        st.subheader("🛒 Maior Volume de Compra Sugerido (Top 15)")
-        top_compra = df_all[df_all['SUGESTAO COMPRA'] > 0].sort_values(by='SUGESTAO COMPRA', ascending=False).head(15)
-        st.dataframe(top_compra[['CODIGO', 'DESCRICAO', 'FILIAL_NOME', 'SUGESTAO COMPRA', 'FORNECEDOR']], use_container_width=True)
-
-    with tab3:
-        st.subheader("Distribuição de Estoque Excedente / Sem Giro")
-        if not df_p.empty:
-            grafico_dados = df_p.groupby('FILIAL_NOME')['ESTOQUE_DISPONIVEL'].sum().reset_index()
-            fig = px.bar(
-                grafico_dados, 
-                x='FILIAL_NOME', 
-                y='ESTOQUE_DISPONIVEL', 
-                title="Volume de Estoque Acima do Limite de Giro por Filial", 
-                color='ESTOQUE_DISPONIVEL', 
-                color_continuous_scale='Reds'
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Nenhum estoque crítico/parado foi detectado com base nos parâmetros configurados.")
-
-    with tab4:
-        st.subheader("Prévia Colorida dos Dados por Filial")
-        sel_f = st.selectbox("Selecione a Filial para visualizar:", list(dfs_por_filial.keys()))
-        df_view = dfs_por_filial[sel_f].copy()
-
-        def pintar_tabela(row):
-            cols = row.index
-            estilos = [''] * len(cols)
-            def f_idx(nome): return cols.get_loc(nome) if nome in cols else -1
-
-            i_parado = f_idx('ESTOQUE PARADO')
-            i_estoque = f_idx('ESTOQUE')
-            i_atipica = f_idx('VENDA_ATIPICA')
-            i_compra = f_idx('SUGESTAO COMPRA')
-            i_transf = f_idx('TRANS INTERNA')
-            i_comprada = f_idx('COMPRADA')
-            i_ruptura = f_idx('RUPTURA CRÍTICA')
-
-            if i_parado >= 0 and '🛑 SIM' in str(row.get('ESTOQUE PARADO', '')):
-                estilos[i_parado] = 'background-color: #F4CCCC; color: black;'
-                if i_estoque >= 0: estilos[i_estoque] = 'background-color: #F4CCCC; color: black;'
-            if i_atipica >= 0 and '⚠️ SIM' in str(row.get('VENDA_ATIPICA', '')): estilos[i_atipica] = 'background-color: #FFF2CC; color: black;'
-            if i_compra >= 0 and pd.to_numeric(row.get('SUGESTAO COMPRA', 0), errors='coerce') > 0: estilos[i_compra] = 'background-color: #D9EAD3; color: black;'
-            
-            if i_transf >= 0 and str(row.get('TRANS INTERNA', '')) not in ['0', 'None', '', 'nan']:
-                if 'ESTOQUE MORTO' in str(row.get('TRANS INTERNA', '')):
-                    estilos[i_transf] = 'background-color: #C55A11; color: white; font-weight: bold;'
-                else:
-                    estilos[i_transf] = 'background-color: #C9DAF8; color: black;'
-
-            if i_comprada >= 0 and pd.to_numeric(row.get('COMPRADA', 0), errors='coerce') > 0: estilos[i_comprada] = 'background-color: #FCE5CD; color: black;'
-            if i_ruptura >= 0 and '🚨 CRÍTICA' in str(row.get('RUPTURA CRÍTICA', '')):
-                estilos[i_ruptura] = 'background-color: #FFD2D2; color: black; font-weight: bold;'
-                if i_estoque >= 0: estilos[i_estoque] = 'background-color: #FFD2D2; color: black;'
-            return estilos
-
-        st.dataframe(df_view.style.apply(pintar_tabela, axis=1), use_container_width=True)
-
-else:
-    st.info("Aguardando documentos. Por favor, selecione os ficheiros PDF na barra lateral para iniciar a análise.")
+        df_all = pd.concat(dfs_por_filial.values
