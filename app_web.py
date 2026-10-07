@@ -13,7 +13,7 @@ from openpyxl.utils import get_column_letter
 # --- CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 
-# --- TELA DE SENHA ---
+# --- TELA DE SENHA (BLOQUEIO CENTRALIZADO) ---
 SENHA_ACESSO = "Tape2026"
 if "liberado" not in st.session_state:
     st.session_state.liberado = False
