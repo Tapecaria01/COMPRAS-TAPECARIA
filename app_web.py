@@ -100,7 +100,7 @@ def extrair_produto(linha):
         return None
     em = embs[-1]
     descricao = resto[:em.start()].strip()
-    emb = em.group(1).upper()
+    emb = re.sub(r"\s+", "", em.group(0)).upper()
     tokens = resto[em.end():].strip().split()
     if len(tokens) < 10:
         return None
@@ -202,26 +202,15 @@ def preparar_export_filial(df, meses):
         if origem in x.columns:
             x[destino] = x[origem]
 
-    # PADRÃO DO EXCEL ANTIGO: uma aba por filial e sem FILIAL_NOME.
-    # Mantemos as colunas do modelo. A coluna ORIGINAL_TRANS é substituída
-    # pela nova SUGESTAO TRANSFERENCIA, na mesma posição, imediatamente após
-    # SUGESTAO COMPRA.
+    # PADRÃO ORIGINAL DO EXCEL: manter todas as colunas antigas e adicionar
+    # SOMENTE SUGESTAO TRANSFERENCIA logo após SUGESTAO COMPRA.
     ordem = [
         "CODIGO", "DESCRICAO", "EMB.",
         meses[0], meses[1], meses[2], meses[3],
         "MEDIA", "ESTOQUE", "RESERVA", "COMPRADA", "MESES",
         "SUGESTAO COMPRA", "SUGESTAO TRANSFERENCIA",
-        "VENDA_ATIPICA", "ESTOQUE PARADO", "RUPTURA CRÍTICA",
-        "ORIGINAL_SUGESTAO", "TRANS_MORTA", "TEM_ASTERISCO"
+        "VENDA_ATIPICA", "ESTOQUE PARADO", "RUPTURA CRÍTICA"
     ]
-
-    # Campos do modelo antigo.
-    if "ORIGINAL_SUGESTAO" not in x.columns:
-        x["ORIGINAL_SUGESTAO"] = x.get("SUGESTAO COMPRA", 0)
-    if "TRANS_MORTA" not in x.columns:
-        x["TRANS_MORTA"] = (coluna_numerica(x, "SUGESTAO TRANSFERENCIA") > 0).map({True: "SIM", False: "NÃO"})
-    if "TEM_ASTERISCO" not in x.columns:
-        x["TEM_ASTERISCO"] = False
 
     for c in ordem:
         if c not in x.columns:
@@ -273,8 +262,8 @@ def _escrever_aba_modelo(ws, df):
         "A": 8.0, "B": 42.0, "C": 6.0,
         "D": 10.0, "E": 11.86, "F": 11.31, "G": 11.73,
         "H": 7.0, "I": 10.76, "J": 13.0, "K": 12.98,
-        "L": 7.0, "M": 20.91, "N": 17.43, "O": 19.52,
-        "P": 19.66, "Q": 19.0, "R": 13.0, "S": 13.0, "T": 15.0,
+        "L": 7.0, "M": 20.91, "N": 20.91, "O": 17.43,
+        "P": 19.52, "Q": 19.66,
     }
     for letra, largura in larguras.items():
         ws.column_dimensions[letra].width = largura
