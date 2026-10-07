@@ -6,98 +6,20 @@ import math
 import traceback
 import plotly.express as px
 from io import BytesIO
-
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
-
-
-# ============================================================
-# CONFIGURAÇÃO DA PÁGINA
-# ============================================================
-
-st.set_page_config(
-    page_title="Portal Compras - Tapeçaria",
-    layout="wide"
-)
-
+from openpyxl.utils import get_column_letter
 
 # ============================================================
-# TELA DE SENHA
+# CONFIGURAÇÃO
 # ============================================================
+st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
 
-SENHA_ACESSO = "Tape2026"
-
-if "liberado" not in st.session_state:
-    st.session_state.liberado = False
-
-if not st.session_state.liberado:
-
-    col1, col2, col3 = st.columns([1, 2, 1])
-
-    with col2:
-
-        st.markdown(
-            "<br><br><br><br>",
-            unsafe_allow_html=True
-        )
-
-        sc1, sc2, sc3 = st.columns([1.5, 1, 1.5])
-
-        with sc2:
-
-            try:
-                st.image(
-                    "logo.png",
-                    use_container_width=True
-                )
-
-            except Exception:
-
-                st.markdown(
-                    "<h1 style='text-align: center; color: white;'>🏢</h1>",
-                    unsafe_allow_html=True
-                )
-
-        st.markdown(
-            "<h2 style='text-align: center; color: #FFFFFF;'>Acesso Restrito</h2>",
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            "<p style='text-align: center; color: #4DA8DA;'>"
-            "Insira a senha de sistema para aceder à inteligência de compras."
-            "</p>",
-            unsafe_allow_html=True
-        )
-
-        senha = st.text_input(
-            "Senha",
-            type="password"
-        )
-
-        if st.button(
-            "Entrar no Portal",
-            use_container_width=True
-        ):
-
-            if senha == SENHA_ACESSO:
-
-                st.session_state.liberado = True
-                st.rerun()
-
-            else:
-
-                st.error(
-                    "Senha incorreta. Tente novamente."
-                )
-
-    st.stop()
-
+SENHA_SISTEMA = "Tape2026"
 
 # ============================================================
-# VARIÁVEIS DE SESSÃO
+# ESTADO
 # ============================================================
-
 if "uploader_key" not in st.session_state:
     st.session_state.uploader_key = 0
 
@@ -105,2611 +27,1435 @@ if "analise_concluida" not in st.session_state:
     st.session_state.analise_concluida = False
 
 if "df_regras" not in st.session_state:
-
     st.session_state.df_regras = pd.DataFrame([
-
-        {
-            "FORNECEDOR": "CORTTEX",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "TEX COMPANY",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "CIPATEX",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "KARSTEN",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "ETRURIA",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "TELLAIO",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "OBER",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "TEXTIL J. SERRANO",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "CKS",
-            "MULTIPLO": 50,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "AGRO QUIMICA",
-            "MULTIPLO": 45,
-            "TOLERANCIA": 20,
-            "PALAVRA_CHAVE": ""
-        },
-
-        {
-            "FORNECEDOR": "ROMPLAS",
-            "MULTIPLO": 30,
-            "TOLERANCIA": 15,
-            "PALAVRA_CHAVE": "URUGUA"
-        },
-
-        {
-            "FORNECEDOR": "ROMA DUBLADOS",
-            "MULTIPLO": 10,
-            "TOLERANCIA": 5,
-            "PALAVRA_CHAVE": ""
-        }
-
+        {"FORNECEDOR": "CORTTEX", "MULTIPLO": 50},
+        {"FORNECEDOR": "TEX COMPANY", "MULTIPLO": 50},
+        {"FORNECEDOR": "CIPATEX", "MULTIPLO": 50},
+        {"FORNECEDOR": "KARSTEN", "MULTIPLO": 50},
+        {"FORNECEDOR": "ETRURIA", "MULTIPLO": 50},
+        {"FORNECEDOR": "TELLAIO", "MULTIPLO": 50},
+        {"FORNECEDOR": "OBER", "MULTIPLO": 50},
+        {"FORNECEDOR": "TEXTIL J. SERRANO", "MULTIPLO": 50},
+        {"FORNECEDOR": "CKS", "MULTIPLO": 50},
+        {"FORNECEDOR": "AGRO QUIMICA", "MULTIPLO": 45},
+        {"FORNECEDOR": "ROMPLAS", "MULTIPLO": 30},
+        {"FORNECEDOR": "ROMA DUBLADOS", "MULTIPLO": 10},
+        {"FORNECEDOR": "GERAL", "MULTIPLO": 1},
     ])
 
-
-# ============================================================
-# LIMPAR DADOS
-# ============================================================
-
-def limpar_dados():
-
-    st.session_state.uploader_key += 1
-
-    st.session_state.analise_concluida = False
-
-    for chave in [
-        "dfs_por_filial",
-        "df_p",
-        "meses_globais",
-        "dash_qtd_comprar",
-        "dash_qtd_transferida",
-        "dash_itens_pico",
-        "dash_itens_ruptura"
-    ]:
-
-        st.session_state.pop(
-            chave,
-            None
-        )
-
-    st.rerun()
+for key, default in {
+    "dfs_por_filial": {},
+    "meses_globais": ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"],
+    "dashboard": {},
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 
 # ============================================================
-# LIMPEZA DE VALORES
+# AUTENTICAÇÃO
 # ============================================================
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    try:
+        st.image("logo.png", width=320)
+    except Exception:
+        pass
+
+    st.title("Portal Compras - Tapeçaria")
+    senha = st.text_input("Digite a senha de acesso", type="password")
+
+    if st.button("Entrar", use_container_width=True):
+        if senha == SENHA_SISTEMA:
+            st.session_state.autenticado = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta.")
+
+    st.stop()
+
+
+# ============================================================
+# FUNÇÕES DE SUPORTE
+# ============================================================
+MESES_VALIDOS = {
+    "JAN", "FEV", "MAR", "ABR", "MAI", "JUN",
+    "JUL", "AGO", "SET", "OUT", "NOV", "DEZ",
+    "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+    "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+}
 
 def limpar_v(val):
-
+    """Converte números brasileiros para float."""
     if val is None:
         return 0.0
 
-    texto = str(val).strip()
+    texto = str(val).strip().upper()
 
-    if texto in [
-        "",
-        "-",
-        "S/N",
-        "N/A",
-        "nan",
-        "None"
-    ]:
+    if texto in {"", "-", "—", "S/N", "N/A", "NA", "NULL"}:
         return 0.0
 
-    texto = (
-        texto
-        .replace(".", "")
-        .replace(",", ".")
-    )
+    # Trata números negativos e formato brasileiro.
+    texto = texto.replace(" ", "")
 
     try:
-
+        if "," in texto:
+            texto = texto.replace(".", "").replace(",", ".")
+        else:
+            # Mantém números simples como 1234 ou 12.5.
+            # Se houver vários pontos, assume separador de milhar.
+            if texto.count(".") > 1:
+                texto = texto.replace(".", "")
         return float(texto)
-
-    except (ValueError, TypeError):
-
+    except Exception:
         return 0.0
 
 
-# ============================================================
-# EXTRAÇÃO DO PDF
-# ============================================================
+def extrair_meses_do_texto(texto):
+    """
+    Procura meses no formato do relatório, por exemplo:
+    JUL/2026 AUG/2026 SEP/2026 OCT/2026
+
+    Também aceita:
+    JUL-2026, JUL.2026, JUL 2026
+    """
+    if not texto:
+        return []
+
+    padrao = re.compile(
+        r"\b("
+        r"JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ|"
+        r"JANUARY|FEBRUARY|MARCH|APRIL|MAY|JUNE|JULY|AUGUST|"
+        r"SEPTEMBER|OCTOBER|NOVEMBER|DECEMBER"
+        r")"
+        r"(?:[\/\-.]|\s+)"
+        r"(\d{4})\b",
+        re.IGNORECASE
+    )
+
+    encontrados = []
+    vistos = set()
+
+    for match in padrao.finditer(texto):
+        mes = match.group(1).upper()
+        ano = match.group(2)
+        valor = f"{mes}/{ano}"
+
+        # Evita duplicidade se o PDF repetir cabeçalho.
+        if valor not in vistos:
+            encontrados.append(valor)
+            vistos.add(valor)
+
+    return encontrados
+
 
 def extrair_dados_pdf_web(file):
+    """
+    Extrai os dados do PDF.
 
+    PRINCIPAL CORREÇÃO:
+    - Os meses são capturados diretamente do cabeçalho do PDF.
+    - Ex.: JUL/2026, AUG/2026, SEP/2026, OCT/2026.
+    - A ordem dos 4 meses é preservada.
+    - Cada PDF leva seus próprios meses para o processamento.
+    """
     dados = []
-
     meses_cabecalho = []
-
-    nome_filial = re.sub(
-        r"\.pdf$",
-        "",
-        file.name,
-        flags=re.IGNORECASE
-    ).upper()
-
+    nome_filial = re.sub(r"\.pdf$", "", file.name, flags=re.IGNORECASE).upper()
     fornecedor_atual = "DESCONHECIDO"
 
-    with pdfplumber.open(file) as pdf:
+    # Números no padrão brasileiro ou simples.
+    num_pattern = r"(?:-|\d+(?:\.\d{3})*(?:,\d+)?|\d+(?:\.\d+)?)"
 
-        for page in pdf.pages:
+    try:
+        with pdfplumber.open(file) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if not text:
+                    continue
 
-            text = page.extract_text()
+                # Primeiro procura os meses no texto completo da página.
+                if len(meses_cabecalho) < 4:
+                    meses_pagina = extrair_meses_do_texto(text)
+                    if len(meses_pagina) >= 4:
+                        meses_cabecalho = meses_pagina[:4]
 
-            if not text:
-                continue
+                linhas = text.split("\n")
 
-            linhas = text.split("\n")
+                for linha in linhas:
+                    l_str = linha.strip()
+                    if not l_str:
+                        continue
 
-            for l in linhas:
+                    upper = l_str.upper()
 
-                l_str = l.strip()
+                    # Fornecedor
+                    if "FORNECEDOR:" in upper:
+                        partes = re.split(r"FORNECEDOR\s*:", l_str, flags=re.IGNORECASE)
+                        if len(partes) > 1:
+                            fornecedor_atual = partes[1].split(" - ")[0].strip().upper()
 
-                # ------------------------------------------------
-                # FORNECEDOR
-                # ------------------------------------------------
+                    # Reforça a captura dos meses no cabeçalho.
+                    if len(meses_cabecalho) < 4:
+                        meses_linha = extrair_meses_do_texto(l_str)
+                        if len(meses_linha) >= 4:
+                            meses_cabecalho = meses_linha[:4]
 
-                if "FORNECEDOR:" in l_str.upper():
+                    # Ignora linhas de cabeçalho.
+                    if "CÓDIGO" in upper and "DESCRIÇÃO" in upper:
+                        continue
 
-                    partes_forn = (
-                        l_str
-                        .upper()
-                        .split("FORNECEDOR:")
+                    # Remove asteriscos antes do código.
+                    l_limpa = re.sub(r"^\*+\s*", "", l_str)
+
+                    # Código do produto.
+                    match_cod = re.search(
+                        r"^\s*([A-Za-z0-9][A-Za-z0-9\-_]{2,9})\b",
+                        l_limpa
                     )
 
-                    if len(partes_forn) > 1:
+                    if not match_cod:
+                        match_cod = re.search(r"\b\d{3,7}\b", l_limpa)
 
-                        fornecedor_atual = (
-                            partes_forn[1]
-                            .split("-")[0]
-                            .strip()
-                        )
+                    if not match_cod:
+                        continue
 
-                # ------------------------------------------------
-                # CABEÇALHO DOS MESES
-                # ------------------------------------------------
+                    codigo = match_cod.group(1)
 
-                if (
-                    "CÓDIGO" in l_str.upper()
-                    and "DESCRIÇÃO" in l_str.upper()
-                ):
+                    # Todos os valores numéricos da linha.
+                    tokens = re.findall(num_pattern, l_limpa)
 
-                    partes_h = l_str.split()
+                    # O relatório atual tem os 4 meses + média + estoque +
+                    # reserva + comprada + meses de estoque.
+                    if len(tokens) < 8:
+                        continue
 
-                    cand_meses = [
-                        p
-                        for p in partes_h
-                        if len(p) == 3
-                        and p.isalpha()
-                    ]
+                    try:
+                        # Os campos finais são lidos de trás para frente.
+                        meses_est = limpar_v(tokens[-1])
+                        comprada = limpar_v(tokens[-2]) if len(tokens) >= 9 else 0.0
+                        reserva = limpar_v(tokens[-3]) if len(tokens) >= 10 else 0.0
+                        estoque = limpar_v(tokens[-4]) if len(tokens) >= 11 else 0.0
+                        media = limpar_v(tokens[-5]) if len(tokens) >= 12 else 0.0
 
-                    if (
-                        len(cand_meses) >= 4
-                        and not meses_cabecalho
-                    ):
+                        # Mantém a ordem real do cabeçalho:
+                        # MES_1 = primeiro mês, MES_4 = quarto mês.
+                        m1 = limpar_v(tokens[-9]) if len(tokens) >= 16 else 0.0
+                        m2 = limpar_v(tokens[-8]) if len(tokens) >= 15 else 0.0
+                        m3 = limpar_v(tokens[-7]) if len(tokens) >= 14 else 0.0
+                        m4 = limpar_v(tokens[-6]) if len(tokens) >= 13 else 0.0
 
-                        meses_cabecalho = [
-                            m.upper()
-                            for m in cand_meses[:4]
-                        ]
+                        # Descrição: remove código e números finais.
+                        desc_raw = re.sub(
+                            r"^\s*" + re.escape(codigo),
+                            "",
+                            l_limpa
+                        ).strip()
 
-                # ------------------------------------------------
-                # PRODUTO
-                # ------------------------------------------------
+                        descricao = re.sub(
+                            r"(?:\s+" + num_pattern + r")+$",
+                            "",
+                            desc_raw
+                        ).strip()
 
-                l_limpa = re.sub(
-                    r"^\*+\s*",
-                    "",
-                    l_str
-                )
+                        if not descricao:
+                            descricao = "ITEM SEM DESCRICAO"
 
-                match_cod = re.search(
-                    r"\b\d{3,6}\b",
-                    l_limpa
-                )
+                        dados.append({
+                            "CODIGO": str(codigo),
+                            "DESCRICAO": descricao[:100],
+                            "EMB.": "UN",
+                            "MES_1": m1,
+                            "MES_2": m2,
+                            "MES_3": m3,
+                            "MES_4": m4,
+                            "MEDIA_SISTEMA": media,
+                            "ESTOQUE": estoque,
+                            "RESERVA": reserva,
+                            "COMPRADA": comprada,
+                            "SITUACAO": "OK",
+                            "MESES_ESTOQUE": meses_est,
+                            "FILIAL_NOME": nome_filial,
+                            "FORNECEDOR": fornecedor_atual,
+                        })
 
-                if not match_cod:
-                    continue
+                    except Exception:
+                        continue
 
-                codigo = match_cod.group(0)
-
-                partes = l_limpa.split()
-
-                if len(partes) < 12:
-                    continue
-
-                try:
-
-                    item_dict = {
-
-                        "CODIGO": codigo,
-
-                        "DESCRICAO": " ".join([
-                            p
-                            for p in partes
-                            if (
-                                not p
-                                .replace(",", ".")
-                                .replace("-", "")
-                                .replace(".", "")
-                                .isdigit()
-                                and p != codigo
-                            )
-                        ])[:50],
-
-                        "EMB.": partes[-12],
-
-                        "MES_1": limpar_v(
-                            partes[-11]
-                        ),
-
-                        "MES_2": limpar_v(
-                            partes[-10]
-                        ),
-
-                        "MES_3": limpar_v(
-                            partes[-9]
-                        ),
-
-                        "MES_4": limpar_v(
-                            partes[-8]
-                        ),
-
-                        "MEDIA_SISTEMA": limpar_v(
-                            partes[-7]
-                        ),
-
-                        "ESTOQUE": limpar_v(
-                            partes[-6]
-                        ),
-
-                        "RESERVA": limpar_v(
-                            partes[-5]
-                        ),
-
-                        "COMPRADA": limpar_v(
-                            partes[-4]
-                        ),
-
-                        "SITUACAO": partes[-2],
-
-                        "MESES_ESTOQUE": limpar_v(
-                            partes[-1]
-                        ),
-
-                        "FILIAL_NOME": nome_filial,
-
-                        "FORNECEDOR": fornecedor_atual
-
-                    }
-
-                    dados.append(
-                        item_dict
-                    )
-
-                except Exception:
-                    continue
+    except Exception as e:
+        raise RuntimeError(f"Erro lendo o PDF {file.name}: {e}") from e
 
     df_res = pd.DataFrame(dados)
 
-    if (
-        not meses_cabecalho
-        or len(meses_cabecalho) < 4
-    ):
+    if len(meses_cabecalho) < 4:
+        meses_cabecalho = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
 
-        meses_cabecalho = [
-            "MÊS 1",
-            "MÊS 2",
-            "MÊS 3",
-            "MÊS 4"
-        ]
+    return df_res, meses_cabecalho[:4]
 
-    return (
-        df_res,
-        meses_cabecalho
-    )
+
+def numero_seguro(valor):
+    try:
+        if pd.isna(valor):
+            return 0.0
+        return float(valor)
+    except Exception:
+        return 0.0
+
+
+def normalizar_regras(df_regras):
+    """Cria o dicionário de múltiplos de fornecedor de forma segura."""
+    regras = {}
+
+    if df_regras is None or df_regras.empty:
+        return {"GERAL": 1}
+
+    for _, linha in df_regras.iterrows():
+        fornecedor = str(linha.get("FORNECEDOR", "")).strip().upper()
+        multiplo = numero_seguro(linha.get("MULTIPLO", 1))
+
+        if fornecedor:
+            regras[fornecedor] = max(1, int(round(multiplo)))
+
+    regras.setdefault("GERAL", 1)
+    return regras
+
+
+def nome_aba_seguro(nome, usados):
+    """Nome de aba Excel <= 31 caracteres e sem caracteres proibidos."""
+    base = re.sub(r'[\[\]\:\*\?\/\\]', "_", str(nome))
+    base = base.strip() or "FILIAL"
+    base = base[:31]
+
+    original = base
+    contador = 2
+
+    while base in usados:
+        sufixo = f"_{contador}"
+        base = original[:31 - len(sufixo)] + sufixo
+        contador += 1
+
+    usados.add(base)
+    return base
 
 
 # ============================================================
-# FUNÇÃO DE EXPORTAÇÃO DO EXCEL
+# EXPORTAÇÃO EXCEL
 # ============================================================
+def gerar_excel(dfs_por_filial, meses_globais, dashboard=None):
+    """
+    Gera Excel sem filtros automáticos.
 
-def gerar_excel(
-    dfs_por_filial,
-    meses_globais
-):
+    Abas:
+    - RESUMO
+    - SUGESTÕES DE COMPRA
+    - TRANSFERÊNCIAS
+    - uma aba para cada filial
 
-    output = BytesIO()
+    Não é criado AutoFilter nem tabela do Excel.
+    Portanto o arquivo NÃO abre com setas/filtros nas colunas.
+    """
+    dashboard = dashboard or {}
 
     wb = Workbook()
+    ws_resumo = wb.active
+    ws_resumo.title = "RESUMO"
 
-    # Remove a aba padrão
-    ws_padrao = wb.active
+    # Estilos.
+    fill_titulo = PatternFill("solid", fgColor="1F4E78")
+    fill_cabecalho = PatternFill("solid", fgColor="5B9BD5")
+    fill_compra = PatternFill("solid", fgColor="E2F0D9")
+    fill_transf = PatternFill("solid", fgColor="DDEBF7")
+    fill_parado = PatternFill("solid", fgColor="FFF2CC")
+    fill_ruptura = PatternFill("solid", fgColor="F4CCCC")
 
-    wb.remove(
-        ws_padrao
-    )
-
-    # ========================================================
-    # ESTILOS
-    # ========================================================
-
-    amarelo = PatternFill(
-        fill_type="solid",
-        fgColor="FFFF00"
-    )
-
-    verde = PatternFill(
-        fill_type="solid",
-        fgColor="D9EAD3"
-    )
-
-    azul = PatternFill(
-        fill_type="solid",
-        fgColor="C9DAF8"
-    )
-
-    vermelho = PatternFill(
-        fill_type="solid",
-        fgColor="FFD2D2"
-    )
-
-    vermelho_claro = PatternFill(
-        fill_type="solid",
-        fgColor="F4CCCC"
-    )
-
-    amarelo_pico = PatternFill(
-        fill_type="solid",
-        fgColor="FFF2CC"
-    )
-
-    laranja = PatternFill(
-        fill_type="solid",
-        fgColor="C55A11"
-    )
-
-    fonte_branca = Font(
-        color="FFFFFF",
-        bold=True
-    )
-
-    fonte_cabecalho = Font(
-        bold=True
-    )
-
+    fonte_branca = Font(color="FFFFFF", bold=True)
+    fonte_negrito = Font(bold=True)
     borda_fina = Border(
-        left=Side(
-            style="thin",
-            color="D9D9D9"
-        ),
-
-        right=Side(
-            style="thin",
-            color="D9D9D9"
-        ),
-
-        top=Side(
-            style="thin",
-            color="D9D9D9"
-        ),
-
-        bottom=Side(
-            style="thin",
-            color="D9D9D9"
-        )
+        left=Side(style="thin", color="D9E1F2"),
+        right=Side(style="thin", color="D9E1F2"),
+        top=Side(style="thin", color="D9E1F2"),
+        bottom=Side(style="thin", color="D9E1F2"),
     )
 
-    alinhamento_centro = Alignment(
-        horizontal="center",
-        vertical="center"
-    )
-
-    alinhamento_esquerda = Alignment(
-        horizontal="left",
-        vertical="center"
-    )
-
-    # ========================================================
-    # GARANTE OS 4 MESES
-    # ========================================================
-
-    meses = list(
-        meses_globais or []
-    )
-
-    while len(meses) < 4:
-
-        meses.append(
-            f"MÊS {len(meses) + 1}"
-        )
-
-    meses = meses[:4]
-
-    # ========================================================
-    # CRIA UMA ABA POR FILIAL
-    # ========================================================
-
-    for nome_filial, df in dfs_por_filial.items():
-
-        # O Excel permite no máximo 31 caracteres
-        nome_aba = str(
-            nome_filial
-        )[:31]
-
-        nome_original = nome_aba
-
-        contador = 1
-
-        while nome_aba in wb.sheetnames:
-
-            sufixo = f"_{contador}"
-
-            nome_aba = (
-                nome_original[
-                    :31 - len(sufixo)
-                ]
-                + sufixo
-            )
-
-            contador += 1
-
-        ws = wb.create_sheet(
-            title=nome_aba
-        )
-
-        # ====================================================
-        # CABEÇALHO
-        # ====================================================
-
-        colunas = [
-
-            "CODIGO",
-
-            "DESCRICAO",
-
-            "EMB.",
-
-            meses[0],
-            meses[1],
-            meses[2],
-            meses[3],
-
-            "MEDIA",
-
-            "ESTOQUE",
-
-            "RESERVA",
-
-            "COMPRADA",
-
-            "MESES",
-
-            "SUGESTAO COMPRA",
-
-            "VENDA_ATIPICA",
-
-            "ESTOQUE PARADO",
-
-            "RUPTURA CRÍTICA",
-
-            # AUXILIARES OCULTAS
-            "SUGESTAO ORIGINAL",
-
-            "TRANS INTERNA",
-
-            "TRANSF. ESTOQUE MORTO",
-
-            "FORNECEDOR"
-        ]
-
-        for col_idx, nome_coluna in enumerate(
-            colunas,
-            start=1
-        ):
-
-            cell = ws.cell(
-                row=1,
-                column=col_idx,
-                value=nome_coluna
-            )
-
-            cell.fill = amarelo
-
-            cell.font = fonte_cabecalho
-
-            cell.alignment = (
-                alinhamento_centro
-            )
-
-            cell.border = borda_fina
-
-        # ====================================================
-        # DADOS
-        # ====================================================
-
-        for linha_idx, (_, row) in enumerate(
-            df.iterrows(),
-            start=2
-        ):
-
-            sugestao_compra = limpar_v(
-                row.get(
-                    "SUGESTAO COMPRA",
-                    0
-                )
-            )
-
-            transferencia = str(
-                row.get(
-                    "TRANS INTERNA",
-                    "0"
-                )
-            )
-
-            # -----------------------------------------------
-            # QUANTIDADE DE TRANSFERÊNCIA
-            # -----------------------------------------------
-
-            qtd_transf = 0.0
-
-            if transferencia not in [
-                "0",
-                "",
-                "None",
-                "nan"
-            ]:
-
-                match = re.search(
-                    r"(\d+(?:[.,]\d+)?)",
-                    transferencia
-                )
-
-                if match:
-
-                    qtd_transf = limpar_v(
-                        match.group(1)
-                    )
-
-            transferencia_morta = (
-                "ESTOQUE MORTO"
-                in transferencia.upper()
-            )
-
-            # -----------------------------------------------
-            # VALORES DA LINHA
-            # -----------------------------------------------
-
-            valores = [
-
-                row.get(
-                    "CODIGO",
-                    ""
-                ),
-
-                row.get(
-                    "DESCRICAO",
-                    ""
-                ),
-
-                row.get(
-                    "EMB.",
-                    ""
-                ),
-
-                row.get(
-                    "MES_1",
-                    0
-                ),
-
-                row.get(
-                    "MES_2",
-                    0
-                ),
-
-                row.get(
-                    "MES_3",
-                    0
-                ),
-
-                row.get(
-                    "MES_4",
-                    0
-                ),
-
-                row.get(
-                    "MEDIA",
-                    row.get(
-                        "MEDIA_SISTEMA",
-                        0
-                    )
-                ),
-
-                row.get(
-                    "ESTOQUE",
-                    0
-                ),
-
-                row.get(
-                    "RESERVA",
-                    0
-                ),
-
-                row.get(
-                    "COMPRADA",
-                    0
-                ),
-
-                row.get(
-                    "MESES_ESTOQUE",
-                    0
-                ),
-
-                sugestao_compra,
-
-                row.get(
-                    "VENDA_ATIPICA",
-                    "NÃO"
-                ),
-
-                row.get(
-                    "ESTOQUE PARADO",
-                    "NÃO"
-                ),
-
-                row.get(
-                    "RUPTURA CRÍTICA",
-                    "OK"
-                ),
-
-                # -------------------------------------------
-                # AUXILIARES
-                # -------------------------------------------
-
-                sugestao_compra,
-
-                transferencia,
-
-                (
-                    "SIM"
-                    if transferencia_morta
-                    else "NÃO"
-                ),
-
-                row.get(
-                    "FORNECEDOR",
-                    ""
-                )
-            ]
-
-            # -----------------------------------------------
-            # ESCREVE CÉLULAS
-            # -----------------------------------------------
-
-            for col_idx, valor in enumerate(
-                valores,
-                start=1
-            ):
-
-                cell = ws.cell(
-                    row=linha_idx,
-                    column=col_idx,
-                    value=valor
-                )
-
-                cell.border = borda_fina
-
-                if col_idx == 2:
-
-                    cell.alignment = (
-                        alinhamento_esquerda
-                    )
-
-                else:
-
-                    cell.alignment = (
-                        alinhamento_centro
-                    )
-
-            # -----------------------------------------------
-            # SUGESTÃO DE COMPRA
-            # -----------------------------------------------
-
-            if sugestao_compra > 0:
-
-                ws.cell(
-                    linha_idx,
-                    13
-                ).fill = verde
-
-            # -----------------------------------------------
-            # VENDA ATÍPICA
-            # -----------------------------------------------
-
-            if "SIM" in str(
-                row.get(
-                    "VENDA_ATIPICA",
-                    ""
-                )
-            ):
-
-                ws.cell(
-                    linha_idx,
-                    14
-                ).fill = amarelo_pico
-
-            # -----------------------------------------------
-            # ESTOQUE PARADO
-            # -----------------------------------------------
-
-            if "SIM" in str(
-                row.get(
-                    "ESTOQUE PARADO",
-                    ""
-                )
-            ):
-
-                ws.cell(
-                    linha_idx,
-                    15
-                ).fill = vermelho_claro
-
-                ws.cell(
-                    linha_idx,
-                    9
-                ).fill = vermelho_claro
-
-            # -----------------------------------------------
-            # RUPTURA
-            # -----------------------------------------------
-
-            if "CRÍTICA" in str(
-                row.get(
-                    "RUPTURA CRÍTICA",
-                    ""
-                )
-            ):
-
-                ws.cell(
-                    linha_idx,
-                    16
-                ).fill = vermelho
-
-                ws.cell(
-                    linha_idx,
-                    9
-                ).fill = vermelho
-
-                ws.cell(
-                    linha_idx,
-                    16
-                ).font = Font(
-                    bold=True
-                )
-
-            # -----------------------------------------------
-            # TRANSFERÊNCIA
-            # -----------------------------------------------
-
-            if qtd_transf > 0:
-
-                if transferencia_morta:
-
-                    ws.cell(
-                        linha_idx,
-                        18
-                    ).fill = laranja
-
-                    ws.cell(
-                        linha_idx,
-                        18
-                    ).font = fonte_branca
-
-                else:
-
-                    ws.cell(
-                        linha_idx,
-                        18
-                    ).fill = azul
-
-            # -----------------------------------------------
-            # FORMATAÇÃO NUMÉRICA
-            # -----------------------------------------------
-
-            for col_idx in range(
-                4,
-                14
-            ):
-
-                ws.cell(
-                    linha_idx,
-                    col_idx
-                ).number_format = (
-                    '#,##0.00'
-                )
-
-        # ====================================================
-        # LARGURA DAS COLUNAS
-        # ====================================================
-
-        larguras = {
-
-            "A": 10,
-
-            "B": 42,
-
-            "C": 10,
-
-            "D": 11,
-            "E": 11,
-            "F": 11,
-            "G": 11,
-
-            "H": 11,
-
-            "I": 12,
-
-            "J": 12,
-
-            "K": 12,
-
-            "L": 10,
-
-            "M": 20,
-
-            "N": 17,
-
-            "O": 19,
-
-            "P": 20,
-
-            "Q": 20,
-
-            "R": 24,
-
-            "S": 20,
-
-            "T": 25
+    # --------------------------------------------------------
+    # RESUMO
+    # --------------------------------------------------------
+    ws_resumo["A1"] = "RELATÓRIO DE INTELIGÊNCIA DE COMPRAS"
+    ws_resumo["A1"].fill = fill_titulo
+    ws_resumo["A1"].font = Font(color="FFFFFF", bold=True, size=14)
+    ws_resumo.merge_cells("A1:D1")
+
+    resumo = [
+        ("Total sugerido para compra", dashboard.get("qtd_comprar", 0)),
+        ("Total sugerido para transferência", dashboard.get("qtd_transferida", 0)),
+        ("Itens com venda atípica", dashboard.get("itens_pico", 0)),
+        ("Itens com necessidade", dashboard.get("itens_necessidade", 0)),
+        ("Itens parados > 90 dias", dashboard.get("itens_parados", 0)),
+    ]
+
+    ws_resumo["A3"] = "INDICADOR"
+    ws_resumo["B3"] = "VALOR"
+    for cell in ws_resumo[3]:
+        cell.fill = fill_cabecalho
+        cell.font = fonte_branca
+        cell.border = borda_fina
+
+    for i, (indicador, valor) in enumerate(resumo, start=4):
+        ws_resumo.cell(i, 1, indicador)
+        ws_resumo.cell(i, 2, valor)
+        ws_resumo.cell(i, 1).border = borda_fina
+        ws_resumo.cell(i, 2).border = borda_fina
+
+    ws_resumo["A11"] = "Meses identificados nos PDFs"
+    ws_resumo["A11"].font = fonte_negrito
+    ws_resumo["B11"] = " | ".join(meses_globais[:4])
+
+    ws_resumo.freeze_panes = "A3"
+
+    # --------------------------------------------------------
+    # BASE CONSOLIDADA
+    # --------------------------------------------------------
+    todos = []
+    for _, df in dfs_por_filial.items():
+        if df is not None and not df.empty:
+            todos.append(df.copy())
+
+    df_todos = pd.concat(todos, ignore_index=True) if todos else pd.DataFrame()
+
+    colunas_base = [
+        "FILIAL",
+        "CODIGO",
+        "DESCRICAO",
+        "FORNECEDOR",
+        "MEDIA",
+        "ESTOQUE",
+        "RESERVA",
+        "COMPRADA",
+        "SUGESTAO_COMPRA",
+        "SUGESTAO_TRANSFERENCIA",
+        "ORIGEM_TRANSFERENCIA",
+        "DESTINO_TRANSFERENCIA",
+        "ESTOQUE_PARADO_90D",
+        "SITUACAO",
+    ]
+
+    def preparar_export(df):
+        x = df.copy()
+
+        # Garante colunas.
+        for c in colunas_base:
+            if c not in x.columns:
+                x[c] = "" if "SITUACAO" in c or "TRANSFERENCIA" in c or "DESCRICAO" in c or c == "FORNECEDOR" else 0
+
+        # Acrescenta os 4 meses com o nome real do PDF.
+        rename_meses = {
+            "MES_1": meses_globais[0] if len(meses_globais) > 0 else "MÊS 1",
+            "MES_2": meses_globais[1] if len(meses_globais) > 1 else "MÊS 2",
+            "MES_3": meses_globais[2] if len(meses_globais) > 2 else "MÊS 3",
+            "MES_4": meses_globais[3] if len(meses_globais) > 3 else "MÊS 4",
         }
 
-        for coluna, largura in larguras.items():
+        x = x.rename(columns=rename_meses)
 
-            ws.column_dimensions[
-                coluna
-            ].width = largura
+        ordem = [
+            "FILIAL",
+            "CODIGO",
+            "DESCRICAO",
+            "FORNECEDOR",
+            rename_meses["MES_1"],
+            rename_meses["MES_2"],
+            rename_meses["MES_3"],
+            rename_meses["MES_4"],
+            "MEDIA",
+            "ESTOQUE",
+            "RESERVA",
+            "COMPRADA",
+            "SUGESTAO_COMPRA",
+            "SUGESTAO_TRANSFERENCIA",
+            "ORIGEM_TRANSFERENCIA",
+            "DESTINO_TRANSFERENCIA",
+            "ESTOQUE_PARADO_90D",
+            "SITUACAO",
+        ]
 
-        # ====================================================
-        # OCULTA COLUNAS AUXILIARES
-        # ====================================================
+        for c in ordem:
+            if c not in x.columns:
+                x[c] = ""
 
-        ws.column_dimensions[
-            "Q"
-        ].hidden = True
+        return x[ordem]
 
-        ws.column_dimensions[
-            "R"
-        ].hidden = True
+    df_export = preparar_export(df_todos)
 
-        ws.column_dimensions[
-            "S"
-        ].hidden = True
+    # --------------------------------------------------------
+    # Função de escrita de planilha
+    # --------------------------------------------------------
+    def escrever_df(ws, df, titulo):
+        ws["A1"] = titulo
+        ws["A1"].fill = fill_titulo
+        ws["A1"].font = Font(color="FFFFFF", bold=True, size=13)
 
-        ws.column_dimensions[
-            "T"
-        ].hidden = True
-
-        # ====================================================
-        # CONGELA CABEÇALHO
-        # ====================================================
-
-        ws.freeze_panes = "A2"
-
-        # ====================================================
-        # FILTRO
-        # ====================================================
-
-        if ws.max_row >= 1:
-
-            ws.auto_filter.ref = (
-                f"A1:P{ws.max_row}"
-            )
-
-        # ====================================================
-        # ALTURA DO CABEÇALHO
-        # ====================================================
-
-        ws.row_dimensions[
-            1
-        ].height = 24
-
-    # ========================================================
-    # SALVA NA MEMÓRIA
-    # ========================================================
-
-    wb.save(
-        output
-    )
-
-    output.seek(0)
-
-    return output
-
-
-# ============================================================
-# BARRA LATERAL
-# ============================================================
-
-with st.sidebar:
-
-    try:
-
-        st.image(
-            "logo.png",
-            use_container_width=True
+        max_col = max(1, len(df.columns))
+        ws.merge_cells(
+            start_row=1,
+            start_column=1,
+            end_row=1,
+            end_column=max_col
         )
 
+        # Cabeçalho na linha 3.
+        for col_idx, coluna in enumerate(df.columns, start=1):
+            cell = ws.cell(3, col_idx, coluna)
+            cell.fill = fill_cabecalho
+            cell.font = fonte_branca
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = borda_fina
+
+        # Dados.
+        for row_idx, (_, row) in enumerate(df.iterrows(), start=4):
+            for col_idx, coluna in enumerate(df.columns, start=1):
+                valor = row[coluna]
+
+                if pd.isna(valor):
+                    valor = ""
+
+                cell = ws.cell(row_idx, col_idx, valor)
+                cell.border = borda_fina
+                cell.alignment = Alignment(vertical="center")
+
+                if coluna in {
+                    "MEDIA",
+                    "ESTOQUE",
+                    "RESERVA",
+                    "COMPRADA",
+                    "SUGESTAO_COMPRA",
+                    "SUGESTAO_TRANSFERENCIA",
+                    "ESTOQUE_PARADO_90D",
+                } or coluna in meses_globais:
+                    if isinstance(valor, (int, float)):
+                        cell.number_format = '#,##0.00'
+
+                if coluna == "SUGESTAO_COMPRA" and numero_seguro(valor) > 0:
+                    cell.fill = fill_compra
+                    cell.font = fonte_negrito
+
+                if coluna == "SUGESTAO_TRANSFERENCIA" and numero_seguro(valor) > 0:
+                    cell.fill = fill_transf
+                    cell.font = fonte_negrito
+
+                if coluna == "ESTOQUE_PARADO_90D" and numero_seguro(valor) > 0:
+                    cell.fill = fill_parado
+
+                if coluna == "SITUACAO":
+                    texto = str(valor).upper()
+                    if "COMPRAR" in texto or "RUPTURA" in texto:
+                        cell.fill = fill_ruptura
+                    elif "TRANSFER" in texto:
+                        cell.fill = fill_transf
+                    elif "PARADO" in texto:
+                        cell.fill = fill_parado
+
+        # Largura das colunas.
+        for col_idx, coluna in enumerate(df.columns, start=1):
+            letra = get_column_letter(col_idx)
+            if df.empty:
+                largura = len(str(coluna)) + 2
+            else:
+                valores = df[coluna].astype(str).head(500)
+                maior = max([len(str(coluna))] + [len(v) for v in valores])
+                largura = min(max(maior + 2, 10), 45)
+
+            ws.column_dimensions[letra].width = largura
+
+        ws.freeze_panes = "A4"
+        ws.sheet_view.showGridLines = False
+
+        # IMPORTANTE:
+        # NÃO usar ws.auto_filter.ref
+        # NÃO usar openpyxl.worksheet.table.Table
+        # Assim o Excel abre sem setas/filtros.
+
+    # --------------------------------------------------------
+    # SUGESTÕES DE COMPRA
+    # --------------------------------------------------------
+    ws_compra = wb.create_sheet("SUGESTÕES DE COMPRA")
+    if not df_export.empty:
+        df_compra = df_export[
+            pd.to_numeric(df_export["SUGESTAO_COMPRA"], errors="coerce").fillna(0) > 0
+        ].copy()
+    else:
+        df_compra = df_export.copy()
+
+    escrever_df(ws_compra, df_compra, "SUGESTÕES DE COMPRA")
+
+    # --------------------------------------------------------
+    # TRANSFERÊNCIAS
+    # --------------------------------------------------------
+    ws_transf = wb.create_sheet("TRANSFERÊNCIAS")
+    if not df_export.empty:
+        df_transf = df_export[
+            pd.to_numeric(df_export["SUGESTAO_TRANSFERENCIA"], errors="coerce").fillna(0) > 0
+        ].copy()
+    else:
+        df_transf = df_export.copy()
+
+    escrever_df(ws_transf, df_transf, "SUGESTÕES DE TRANSFERÊNCIA")
+
+    # --------------------------------------------------------
+    # UMA ABA POR FILIAL
+    # --------------------------------------------------------
+    usados = {
+        "RESUMO",
+        "SUGESTÕES DE COMPRA",
+        "TRANSFERÊNCIAS",
+    }
+
+    for filial, df_filial in dfs_por_filial.items():
+        if df_filial is None or df_filial.empty:
+            continue
+
+        ws = wb.create_sheet(nome_aba_seguro(filial, usados))
+
+        # Reaproveita a estrutura final.
+        df_f = preparar_export(df_filial)
+        escrever_df(ws, df_f, str(filial))
+
+    # Ajustes finais.
+    for ws in wb.worksheets:
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.page_margins.left = 0.25
+        ws.page_margins.right = 0.25
+        ws.page_margins.top = 0.5
+        ws.page_margins.bottom = 0.5
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+# ============================================================
+# INTERFACE
+# ============================================================
+with st.sidebar:
+    try:
+        st.image("logo.png", use_container_width=True)
     except Exception:
         pass
 
     st.markdown("---")
-
-    st.header(
-        "📂 Nova Compra"
-    )
+    st.header("📂 Nova Compra")
 
     uploaded_files = st.file_uploader(
-
-        "Selecione os 4 PDFs das Unidades",
-
+        "Selecione os PDFs das Unidades",
         type="pdf",
-
         accept_multiple_files=True,
-
-        key=(
-            f"pdf_uploader_"
-            f"{st.session_state.uploader_key}"
-        )
+        key=f"pdf_uploader_{st.session_state.uploader_key}",
     )
 
-    st.button(
-
-        "🧹 Limpar Dados para Nova Compra",
-
-        on_click=limpar_dados,
-
-        use_container_width=True
-    )
+    if st.button("🗑️ Limpar análise", use_container_width=True):
+        st.session_state.dfs_por_filial = {}
+        st.session_state.meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
+        st.session_state.dashboard = {}
+        st.session_state.analise_concluida = False
+        st.session_state.uploader_key += 1
+        st.rerun()
 
     st.markdown("---")
 
-    # ========================================================
-    # CONFIGURAÇÕES
-    # ========================================================
-
-    with st.expander(
-        "⚙️ Configurações Avançadas"
-    ):
-
+    with st.expander("⚙️ Configurações Avançadas"):
         meta = st.number_input(
-
             "Meta de estoque (meses)",
-
             min_value=1,
-
-            value=2
+            value=2,
+            step=1,
         )
 
-        retencao_seguranca = st.number_input(
-
-            "Retenção de Segurança Doadora (meses)",
-
-            min_value=0,
-
-            value=3
+        meses_parado = st.number_input(
+            "Considerar estoque parado após (meses)",
+            min_value=1,
+            value=3,
+            step=1,
+            help="3 meses = 90 dias. Produtos sem venda nesse período entram na sugestão de transferência.",
         )
 
         fator_pico = st.number_input(
-
             "Sensibilidade de Pico (x vezes a média)",
-
             min_value=1.5,
-
             value=2.5,
-
-            step=0.5
+            step=0.5,
         )
 
         nome_sugerido = st.text_input(
-
             "Nome do ficheiro Excel",
-
-            value="Relatorio_Compras_Tapecaria"
+            value="Relatorio_Compras_Tapecaria",
         )
 
         nome_final_xlsx = (
-
             nome_sugerido
-
-            if nome_sugerido.lower().endswith(
-                ".xlsx"
-            )
-
-            else
-            f"{nome_sugerido}.xlsx"
+            if nome_sugerido.lower().endswith(".xlsx")
+            else f"{nome_sugerido}.xlsx"
         )
 
-    # ========================================================
-    # FORNECEDORES
-    # ========================================================
-
-    with st.expander(
-        "🏭 Fornecedores e Múltiplos"
-    ):
-
-        st.subheader(
-            "Adicionar / Editar Regra"
-        )
-
-        novo_forn = st.text_input(
-            "Nome Fornecedor"
-        ).upper().strip()
-
-        novo_mult = st.number_input(
-            "Múltiplo",
-            min_value=1,
-            value=50
-        )
-
-        if st.button(
-            "➕ Gravar Fornecedor",
-            use_container_width=True
-        ):
-
-            if novo_forn:
-
-                forns_existentes = (
-                    st.session_state.df_regras[
-                        "FORNECEDOR"
-                    ]
-                    .str.upper()
-                    .tolist()
-                )
-
-                if novo_forn in forns_existentes:
-
-                    st.warning(
-                        f"⚠️ O fornecedor "
-                        f"'{novo_forn}' já está cadastrado!"
-                    )
-
-                else:
-
-                    nova_linha = pd.DataFrame([
-
-                        {
-                            "FORNECEDOR": novo_forn,
-                            "MULTIPLO": novo_mult,
-                            "TOLERANCIA": 0,
-                            "PALAVRA_CHAVE": ""
-                        }
-
-                    ])
-
-                    st.session_state.df_regras = (
-                        pd.concat(
-                            [
-                                st.session_state.df_regras,
-                                nova_linha
-                            ],
-                            ignore_index=True
-                        )
-                    )
-
-                    st.success(
-                        f"✅ Fornecedor "
-                        f"'{novo_forn}' gravado com sucesso!"
-                    )
-
-                    st.rerun()
-
-        st.caption(
-            "Tabela Geral de Múltiplos:"
-        )
+    with st.expander("🏭 Fornecedores e Múltiplos"):
+        st.caption("Edite ou adicione regras na tabela abaixo.")
 
         df_regras_editado = st.data_editor(
-
             st.session_state.df_regras,
-
             num_rows="dynamic",
-
             use_container_width=True,
-
-            hide_index=True
+            hide_index=True,
         )
 
-        st.session_state.df_regras = (
-            df_regras_editado
-        )
+        st.session_state.df_regras = df_regras_editado
 
 
 # ============================================================
-# CABEÇALHO PRINCIPAL
+# CABEÇALHO
 # ============================================================
-
-col1, col2 = st.columns(
-    [1, 15]
-)
+col1, col2 = st.columns([1, 15])
 
 with col1:
-
     try:
-
-        st.image(
-            "simbolo.png",
-            width=50
-        )
-
+        st.image("simbolo.png", width=50)
     except Exception:
         pass
 
 with col2:
+    st.title("Inteligência de Compras")
 
-    st.title(
-        "Inteligência de Compras"
-    )
-
-st.markdown(
-    "##### Portal Operacional - Tapeçaria"
-)
-
-st.markdown(
-    "<br>",
-    unsafe_allow_html=True
-)
+st.markdown("##### Portal Operacional - Tapeçaria")
 
 
 # ============================================================
-# PROCESSAMENTO AUTOMÁTICO
+# PROCESSAMENTO
 # ============================================================
-
 if uploaded_files:
+    with st.spinner("🔍 Processando PDFs e calculando compras/transferências..."):
+        try:
+            dfs_por_filial = {}
+            todos_dados = []
+            meses_globais = []
 
-    with st.spinner(
-        "🔍 A executar Inteligência de Compras..."
-    ):
+            # ------------------------------------------------
+            # 1. Ler cada PDF e guardar seus meses.
+            # ------------------------------------------------
+            for f in uploaded_files:
+                df, meses = extrair_dados_pdf_web(f)
 
-        dfs_por_filial = {}
+                if not df.empty:
+                    nome_filial = re.sub(
+                        r"\.pdf$",
+                        "",
+                        f.name,
+                        flags=re.IGNORECASE
+                    ).upper()
 
-        todos_dados = []
+                    dfs_por_filial[nome_filial] = df
+                    todos_dados.append(df)
 
-        meses_globais = []
+                    # O sistema usa o primeiro conjunto de meses
+                    # válido como referência global para exportação.
+                    if len(meses) >= 4 and not meses_globais:
+                        meses_globais = meses[:4]
 
-        # ====================================================
-        # LÊ OS PDFs
-        # ====================================================
+            if not meses_globais:
+                meses_globais = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
 
-        for f in uploaded_files:
+            if not todos_dados:
+                st.error("⚠️ O sistema não encontrou produtos compatíveis nos PDFs.")
+                st.stop()
 
-            df, meses = (
-                extrair_dados_pdf_web(f)
+            # ------------------------------------------------
+            # 2. Consolidar.
+            # ------------------------------------------------
+            df_global = pd.concat(todos_dados, ignore_index=True)
+
+            for col in [
+                "MES_1", "MES_2", "MES_3", "MES_4",
+                "MEDIA_SISTEMA", "ESTOQUE", "RESERVA",
+                "COMPRADA", "MESES_ESTOQUE"
+            ]:
+                if col not in df_global.columns:
+                    df_global[col] = 0.0
+                df_global[col] = pd.to_numeric(
+                    df_global[col],
+                    errors="coerce"
+                ).fillna(0.0)
+
+            df_global["ESTOQUE_DISPONIVEL"] = df_global["ESTOQUE"]
+
+            df_global["TOTAL_VENDAS_RECENTES"] = (
+                df_global["MES_1"]
+                + df_global["MES_2"]
+                + df_global["MES_3"]
+                + df_global["MES_4"]
             )
 
-            if not df.empty:
+            # ------------------------------------------------
+            # 3. Regras de fornecedor.
+            # ------------------------------------------------
+            regras_dict = normalizar_regras(st.session_state.df_regras)
+            multiplo_padrao = regras_dict.get("GERAL", 1)
 
-                nome_filial = re.sub(
+            # ------------------------------------------------
+            # 4. Necessidade de cada filial.
+            # ------------------------------------------------
+            necessidades = {}
 
-                    r"\.pdf$",
+            for _, row in df_global.iterrows():
+                filial = row["FILIAL_NOME"]
+                codigo = str(row["CODIGO"])
+                media = numero_seguro(row["MEDIA_SISTEMA"])
+                estoque = numero_seguro(row["ESTOQUE"])
+                reserva = numero_seguro(row["RESERVA"])
+                comprada = numero_seguro(row["COMPRADA"])
 
-                    "",
-
-                    f.name,
-
-                    flags=re.IGNORECASE
-                ).upper()
-
-                dfs_por_filial[
-                    nome_filial
-                ] = df
-
-                todos_dados.append(
-                    df
+                necessidade = max(
+                    0.0,
+                    (media * meta) - (estoque + comprada - reserva)
                 )
 
-                if (
-                    len(meses) >= 4
-                    and not meses_globais
-                ):
+                necessidades[(filial, codigo)] = necessidade
 
-                    meses_globais = (
-                        meses[:4]
-                    )
+            # ------------------------------------------------
+            # 5. Excedentes para transferência de emergência.
+            #    Mantém a regra original: estoque acima de
+            #    3 meses da média pode atender outra filial.
+            # ------------------------------------------------
+            tracker_estoque = {}
 
-        if not meses_globais:
+            for _, row in df_global.iterrows():
+                filial = row["FILIAL_NOME"]
+                codigo = str(row["CODIGO"])
+                estoque = numero_seguro(row["ESTOQUE"])
+                media = numero_seguro(row["MEDIA_SISTEMA"])
 
-            meses_globais = [
-
-                "MÊS 1",
-                "MÊS 2",
-                "MÊS 3",
-                "MÊS 4"
-
-            ]
-
-        # ====================================================
-        # NENHUM DADO
-        # ====================================================
-
-        if not todos_dados:
-
-            st.error(
-                "⚠️ O sistema não encontrou "
-                "produtos compatíveis nos PDFs."
-            )
-
-            st.session_state.analise_concluida = (
-                False
-            )
-
-        else:
-
-            try:
-
-                # =================================================
-                # CONSOLIDA DADOS
-                # =================================================
-
-                df_global = pd.concat(
-                    todos_dados,
-                    ignore_index=True
+                excesso = (
+                    estoque
+                    if media == 0
+                    else max(0.0, estoque - (media * 3))
                 )
 
-                df_global[
-                    "ESTOQUE_DISPONIVEL"
-                ] = df_global[
-                    "ESTOQUE"
-                ]
+                tracker_estoque[(filial, codigo)] = {
+                    "EXCEDENTE": excesso,
+                    "ESTOQUE_INICIAL": estoque,
+                    "MEDIA": media,
+                }
 
-                vendas_recentes = (
+            # ------------------------------------------------
+            # 6. Primeiro atende necessidades por transferência.
+            # ------------------------------------------------
+            transferencias_emergencia = {}
 
-                    df_global["MES_1"]
+            for chave_destino, necessidade_inicial in list(necessidades.items()):
+                if necessidade_inicial <= 0:
+                    continue
 
-                    + df_global["MES_2"]
+                filial_destino, codigo = chave_destino
+                necessidade = necessidade_inicial
+                origem_textos = []
 
-                    + df_global["MES_3"]
+                for (filial_origem, codigo_origem), dados_est in tracker_estoque.items():
+                    if necessidade <= 0:
+                        break
 
-                    + df_global["MES_4"]
+                    if filial_origem == filial_destino:
+                        continue
 
-                )
+                    if codigo_origem != codigo:
+                        continue
 
-                df_global[
-                    "TOTAL_VENDAS_RECENTES"
-                ] = vendas_recentes
+                    disponivel = numero_seguro(dados_est["EXCEDENTE"])
+                    if disponivel <= 0:
+                        continue
 
-                # =================================================
-                # TRACKER DE ESTOQUE
-                # =================================================
+                    qtd = min(necessidade, disponivel)
 
-                tracker_estoque = {}
+                    dados_est["EXCEDENTE"] -= qtd
+                    necessidade -= qtd
 
-                for _, row in (
-                    df_global.iterrows()
-                ):
-
-                    f_nome = row[
-                        "FILIAL_NOME"
-                    ]
-
-                    codigo = row[
-                        "CODIGO"
-                    ]
-
-                    est = float(
-                        row["ESTOQUE"]
+                    origem_textos.append(
+                        f"{qtd:g} de {filial_origem}"
                     )
 
-                    med = float(
-                        row["MEDIA_SISTEMA"]
-                    )
-
-                    # Estoque morto:
-                    # libera 100%
-
-                    if med == 0:
-
-                        excesso = est
-
-                    else:
-
-                        excesso = max(
-
-                            0.0,
-
-                            est
-                            - (
-                                med
-                                * retencao_seguranca
-                            )
-
-                        )
-
-                    tracker_estoque[
-                        (
-                            f_nome,
-                            codigo
-                        )
+                    transferencias_emergencia[
+                        (filial_destino, codigo)
                     ] = {
-
-                        "EXCEDENTE": excesso,
-
-                        "MEDIA": med,
-
-                        "ESTOQUE_FINAL": est
-
+                        "QTD": transferencias_emergencia.get(
+                            (filial_destino, codigo), {}
+                        ).get("QTD", 0) + qtd,
+                        "ORIGEM": (
+                            transferencias_emergencia.get(
+                                (filial_destino, codigo), {}
+                            ).get("ORIGEM", "")
+                            + (
+                                (" + " if transferencias_emergencia.get(
+                                    (filial_destino, codigo), {}
+                                ).get("ORIGEM", "") else "")
+                                + f"{qtd:g} de {filial_origem}"
+                            )
+                        ),
                     }
 
-                # =================================================
-                # INDICADORES
-                # =================================================
+                necessidades[chave_destino] = necessidade
 
-                dash_qtd_comprar = 0
+            # ------------------------------------------------
+            # 7. Sugestão específica de transferência de
+            #    produtos parados há mais de 90 dias.
+            #
+            #    Regra:
+            #    - estoque > 0
+            #    - vendas dos últimos N meses = 0
+            #    - N padrão = 3 meses = 90 dias
+            #    - procura outra filial com necessidade do
+            #      mesmo produto.
+            # ------------------------------------------------
+            transferencias_parados = {}
+            estoque_parado_por_chave = {}
 
-                dash_qtd_transferida = 0
+            for _, row in df_global.iterrows():
+                filial = row["FILIAL_NOME"]
+                codigo = str(row["CODIGO"])
+                estoque = numero_seguro(row["ESTOQUE"])
 
-                dash_itens_pico = 0
+                # Usa os primeiros N meses disponíveis do relatório.
+                qtd_meses_considerados = min(
+                    int(meses_parado),
+                    4
+                )
 
-                dash_itens_ruptura = 0
+                meses_venda = [
+                    numero_seguro(row[f"MES_{i}"])
+                    for i in range(1, qtd_meses_considerados + 1)
+                ]
 
-                # =================================================
-                # REGRAS DE FORNECEDORES
-                # =================================================
+                vendas_no_periodo = sum(meses_venda)
 
-                regras_dict = dict(
+                # Produto sem venda durante o período configurado.
+                parado = estoque > 0 and vendas_no_periodo <= 0
 
-                    zip(
+                if parado:
+                    estoque_parado_por_chave[(filial, codigo)] = estoque
 
-                        st.session_state.df_regras[
-                            "FORNECEDOR"
-                        ]
-                        .fillna("")
-                        .astype(str)
-                        .str.upper(),
+                    # Procura filial de destino com necessidade.
+                    melhor_destino = None
+                    melhor_necessidade = 0.0
 
-                        pd.to_numeric(
+                    for (filial_destino, codigo_destino), necessidade in necessidades.items():
+                        if filial_destino == filial:
+                            continue
+                        if codigo_destino != codigo:
+                            continue
 
-                            st.session_state.df_regras[
-                                "MULTIPLO"
-                            ],
+                        if necessidade > melhor_necessidade:
+                            melhor_necessidade = necessidade
+                            melhor_destino = filial_destino
 
-                            errors="coerce"
+                    if melhor_destino:
+                        # Usa somente o saldo ainda disponível na filial de origem.
+                        # As transferências de emergência feitas anteriormente
+                        # já reduziram este excedente.
+                        saldo_origem = numero_seguro(
+                            tracker_estoque.get(
+                                (filial, codigo),
+                                {}
+                            ).get("EXCEDENTE", 0)
+                        )
 
-                        ).fillna(1)
+                        qtd_transferir = min(
+                            saldo_origem,
+                            melhor_necessidade
+                        )
 
+                        if qtd_transferir > 0:
+                            tracker_estoque[(filial, codigo)]["EXCEDENTE"] -= qtd_transferir
+
+                            transferencias_parados[
+                                (filial, codigo)
+                            ] = {
+                                "QTD": qtd_transferir,
+                                "DESTINO": melhor_destino,
+                            }
+
+                            # Diminui a necessidade do destino.
+                            necessidades[
+                                (melhor_destino, codigo)
+                            ] = max(
+                                0.0,
+                                necessidades[
+                                    (melhor_destino, codigo)
+                                ] - qtd_transferir
+                            )
+
+            # ------------------------------------------------
+            # 8. Montar resultado final.
+            # ------------------------------------------------
+            resultados_por_filial = {
+                filial: [] for filial in dfs_por_filial
+            }
+
+            dash_qtd_comprar = 0.0
+            dash_qtd_transferida = 0.0
+            dash_itens_pico = 0
+            dash_itens_necessidade = 0
+            dash_itens_parados = 0
+
+            for _, row in df_global.iterrows():
+                filial = row["FILIAL_NOME"]
+                codigo = str(row["CODIGO"])
+                media = numero_seguro(row["MEDIA_SISTEMA"])
+                estoque = numero_seguro(row["ESTOQUE"])
+                reserva = numero_seguro(row["RESERVA"])
+                comprada = numero_seguro(row["COMPRADA"])
+                fornecedor = str(row["FORNECEDOR"]).upper()
+
+                # Pico de venda.
+                vendas = [
+                    numero_seguro(row["MES_1"]),
+                    numero_seguro(row["MES_2"]),
+                    numero_seguro(row["MES_3"]),
+                    numero_seguro(row["MES_4"]),
+                ]
+
+                max_venda = max(vendas)
+                eh_pico = (
+                    media > 0
+                    and max_venda > (media * fator_pico)
+                )
+
+                if eh_pico:
+                    dash_itens_pico += 1
+
+                necessidade_restante = numero_seguro(
+                    necessidades.get((filial, codigo), 0)
+                )
+
+                necessidade_original = max(
+                    0.0,
+                    (media * meta) - (estoque + comprada - reserva)
+                )
+
+                if necessidade_original > 0:
+                    dash_itens_necessidade += 1
+
+                # Transferência de emergência recebida.
+                transf_emergencia = transferencias_emergencia.get(
+                    (filial, codigo),
+                    {"QTD": 0.0, "ORIGEM": ""}
+                )
+
+                qtd_transf_recebida = numero_seguro(
+                    transf_emergencia.get("QTD", 0)
+                )
+                origem_transf = transf_emergencia.get("ORIGEM", "")
+
+                # Compra final depois das transferências.
+                mult = regras_dict.get(fornecedor, multiplo_padrao)
+
+                qtd_comprar = (
+                    math.ceil(necessidade_restante / mult) * mult
+                    if necessidade_restante > 0
+                    else 0
+                )
+
+                dash_qtd_comprar += qtd_comprar
+
+                # Sugestão de transferência de parado > 90 dias.
+                transf_parado = transferencias_parados.get(
+                    (filial, codigo),
+                    {"QTD": 0.0, "DESTINO": ""}
+                )
+
+                qtd_transferir_parado = numero_seguro(
+                    transf_parado.get("QTD", 0)
+                )
+                destino_transferencia = transf_parado.get(
+                    "DESTINO", ""
+                )
+
+                dash_qtd_transferida += (
+                    qtd_transf_recebida
+                    + qtd_transferir_parado
+                )
+
+                # Estoque parado.
+                estoque_parado_90d = estoque_parado_por_chave.get(
+                    (filial, codigo),
+                    0.0
+                )
+
+                if estoque_parado_90d > 0:
+                    dash_itens_parados += 1
+
+                # Status.
+                if qtd_comprar > 0:
+                    status = "🔴 RUPTURA / COMPRAR"
+                elif qtd_transferir_parado > 0:
+                    status = (
+                        f"🟣 TRANSFERIR PARADO > 90 DIAS "
+                        f"PARA {destino_transferencia}"
                     )
-
-                )
-
-                # =================================================
-                # PROCESSAMENTO POR FILIAL
-                # =================================================
-
-                for (
-                    f_nome,
-                    df_f
-                ) in dfs_por_filial.items():
-
-                    suge_compra = []
-
-                    trans_interna = []
-
-                    ruptura_critica = []
-
-                    venda_atipica = []
-
-                    est_parado = []
-
-                    medias = []
-
-                    for _, row in (
-                        df_f.iterrows()
-                    ):
-
-                        codigo = row[
-                            "CODIGO"
-                        ]
-
-                        med = float(
-                            row[
-                                "MEDIA_SISTEMA"
-                            ]
-                        )
-
-                        est = float(
-                            row[
-                                "ESTOQUE"
-                            ]
-                        )
-
-                        comp = float(
-                            row[
-                                "COMPRADA"
-                            ]
-                        )
-
-                        res = float(
-                            row[
-                                "RESERVA"
-                            ]
-                        )
-
-                        fornecedor = str(
-                            row[
-                                "FORNECEDOR"
-                            ]
-                        ).upper()
-
-                        # =========================================
-                        # RUPTURA
-                        # =========================================
-
-                        if (
-
-                            est == 0
-
-                            and comp == 0
-
-                            and med > 0
-
-                        ):
-
-                            ruptura_critica.append(
-                                "🚨 CRÍTICA"
-                            )
-
-                            dash_itens_ruptura += 1
-
-                        else:
-
-                            ruptura_critica.append(
-                                "OK"
-                            )
-
-                        # =========================================
-                        # PICO
-                        # =========================================
-
-                        max_venda = max(
-
-                            row["MES_1"],
-
-                            row["MES_2"],
-
-                            row["MES_3"],
-
-                            row["MES_4"]
-
-                        )
-
-                        if (
-
-                            max_venda
-                            > (
-                                med
-                                * fator_pico
-                            )
-
-                            and med > 0
-
-                        ):
-
-                            venda_atipica.append(
-                                "⚠️ SIM"
-                            )
-
-                            dash_itens_pico += 1
-
-                        else:
-
-                            venda_atipica.append(
-                                "NÃO"
-                            )
-
-                        # =========================================
-                        # ESTOQUE PARADO
-                        # =========================================
-
-                        vendas_tot = (
-
-                            row["MES_1"]
-
-                            + row["MES_2"]
-
-                            + row["MES_3"]
-
-                            + row["MES_4"]
-
-                        )
-
-                        if (
-
-                            vendas_tot == 0
-
-                            and est > 0
-
-                        ):
-
-                            est_parado.append(
-                                "🛑 SIM"
-                            )
-
-                        else:
-
-                            est_parado.append(
-                                "NÃO"
-                            )
-
-                        # =========================================
-                        # NECESSIDADE
-                        # =========================================
-
-                        necessidade = max(
-
-                            0.0,
-
-                            (
-                                med
-                                * meta
-                            )
-
-                            - (
-
-                                est
-                                + comp
-                                - res
-
-                            )
-
-                        )
-
-                        qtd_transf = 0.0
-
-                        origem = ""
-
-                        veio_de_estoque_morto = False
-
-                        # =========================================
-                        # TRANSFERÊNCIA
-                        # =========================================
-
-                        if necessidade > 0:
-
-                            for (
-
-                                outra_f,
-                                cod_item
-
-                            ), d_est in (
-                                tracker_estoque.items()
-                            ):
-
-                                if (
-
-                                    cod_item == codigo
-
-                                    and
-                                    outra_f != f_nome
-
-                                    and
-                                    d_est[
-                                        "EXCEDENTE"
-                                    ] > 0
-
-                                ):
-
-                                    atend = min(
-
-                                        necessidade,
-
-                                        d_est[
-                                            "EXCEDENTE"
-                                        ]
-
-                                    )
-
-                                    qtd_transf += (
-                                        atend
-                                    )
-
-                                    d_est[
-                                        "EXCEDENTE"
-                                    ] -= atend
-
-                                    necessidade -= (
-                                        atend
-                                    )
-
-                                    origem = (
-                                        outra_f
-                                    )
-
-                                    if (
-                                        d_est[
-                                            "MEDIA"
-                                        ] == 0
-                                    ):
-
-                                        veio_de_estoque_morto = True
-
-                                    dash_qtd_transferida += (
-                                        atend
-                                    )
-
-                                    if (
-                                        necessidade
-                                        <= 0
-                                    ):
-
-                                        break
-
-                        # =========================================
-                        # COMPRA
-                        # =========================================
-
-                        mult = regras_dict.get(
-
-                            fornecedor,
-
-                            1
-
-                        )
-
-                        try:
-
-                            mult = float(
-                                mult
-                            )
-
-                        except Exception:
-
-                            mult = 1
-
-                        if mult <= 0:
-                            mult = 1
-
-                        qtd_compra = (
-
-                            math.ceil(
-
-                                necessidade
-                                / mult
-
-                            )
-
-                            * mult
-
-                            if necessidade > 0
-
-                            else 0
-
-                        )
-
-                        qtd_compra = float(
-                            qtd_compra
-                        )
-
-                        dash_qtd_comprar += (
-                            qtd_compra
-                        )
-
-                        suge_compra.append(
-                            qtd_compra
-                        )
-
-                        # =========================================
-                        # TEXTO DA TRANSFERÊNCIA
-                        # =========================================
-
-                        if qtd_transf > 0:
-
-                            txt_transf = (
-                                f"{qtd_transf:.0f} "
-                                f"DE {origem}"
-                            )
-
-                        else:
-
-                            txt_transf = "0"
-
-                        if veio_de_estoque_morto:
-
-                            txt_transf += (
-                                " (ESTOQUE MORTO)"
-                            )
-
-                        trans_interna.append(
-                            txt_transf
-                        )
-
-                        medias.append(
-                            med
-                        )
-
-                    # =============================================
-                    # DEVOLVE RESULTADOS AO DATAFRAME
-                    # =============================================
-
-                    df_f[
-                        "SUGESTAO COMPRA"
-                    ] = suge_compra
-
-                    df_f[
-                        "TRANS INTERNA"
-                    ] = trans_interna
-
-                    df_f[
-                        "RUPTURA CRÍTICA"
-                    ] = ruptura_critica
-
-                    df_f[
-                        "VENDA_ATIPICA"
-                    ] = venda_atipica
-
-                    df_f[
-                        "ESTOQUE PARADO"
-                    ] = est_parado
-
-                    df_f[
-                        "MEDIA"
-                    ] = medias
-
-                # =================================================
-                # ESTOQUE PARADO GLOBAL
-                # =================================================
-
-                df_p = df_global[
-
-                    (
-
-                        df_global[
-                            "TOTAL_VENDAS_RECENTES"
-                        ] == 0
-
-                    )
-
-                    &
-
-                    (
-
-                        df_global[
-                            "ESTOQUE_DISPONIVEL"
-                        ] > 0
-
-                    )
-
-                ].copy()
-
-                # =================================================
-                # SALVA TUDO NA SESSÃO
-                # =================================================
-
-                st.session_state.dfs_por_filial = (
-                    dfs_por_filial
-                )
-
-                st.session_state.dash_qtd_comprar = (
-                    dash_qtd_comprar
-                )
-
-                st.session_state.dash_qtd_transferida = (
-                    dash_qtd_transferida
-                )
-
-                st.session_state.dash_itens_pico = (
-                    dash_itens_pico
-                )
-
-                st.session_state.dash_itens_ruptura = (
-                    dash_itens_ruptura
-                )
-
-                st.session_state.df_p = (
-                    df_p
-                )
-
-                # IMPORTANTE:
-                # guardamos os meses para a exportação
-                st.session_state.meses_globais = (
-                    meses_globais
-                )
-
-                st.session_state.analise_concluida = (
-                    True
-                )
-
-            except Exception as e:
-
-                st.session_state.analise_concluida = (
-                    False
-                )
-
-                st.error(
-                    f"🚨 Ocorreu um erro durante os cálculos: {e}"
-                )
-
-                st.code(
-                    traceback.format_exc()
-                )
+                elif qtd_transf_recebida > 0:
+                    status = f"🔵 RECEBER TRANSFERÊNCIA"
+                elif media == 0 and estoque > 0:
+                    status = "🟡 EXCESSO / SEM GIRO"
+                elif eh_pico:
+                    status = "🟠 VENDA ATÍPICA"
+                else:
+                    status = "🟢 OK"
+
+                resultados_por_filial[filial].append({
+                    "FILIAL": filial,
+                    "CODIGO": codigo,
+                    "DESCRICAO": row["DESCRICAO"],
+                    "FORNECEDOR": fornecedor,
+                    "MES_1": vendas[0],
+                    "MES_2": vendas[1],
+                    "MES_3": vendas[2],
+                    "MES_4": vendas[3],
+                    "MEDIA": media,
+                    "ESTOQUE": estoque,
+                    "RESERVA": reserva,
+                    "COMPRADA": comprada,
+
+                    # IMPORTANTE:
+                    # Esta é a coluna que fica imediatamente depois
+                    # da sugestão de compra no Excel.
+                    "SUGESTAO_COMPRA": qtd_comprar,
+
+                    # Sugestão de transferência de produto parado.
+                    "SUGESTAO_TRANSFERENCIA": qtd_transferir_parado,
+
+                    "ORIGEM_TRANSFERENCIA": (
+                        origem_transf
+                        if qtd_transf_recebida > 0
+                        else ""
+                    ),
+
+                    "DESTINO_TRANSFERENCIA": (
+                        destino_transferencia
+                        if qtd_transferir_parado > 0
+                        else ""
+                    ),
+
+                    "ESTOQUE_PARADO_90D": estoque_parado_90d,
+                    "SITUACAO": status,
+                })
+
+            # ------------------------------------------------
+            # 9. DataFrames finais.
+            # ------------------------------------------------
+            dfs_finais = {}
+
+            for filial, lista in resultados_por_filial.items():
+                dfs_finais[filial] = pd.DataFrame(lista)
+
+            dashboard = {
+                "qtd_comprar": dash_qtd_comprar,
+                "qtd_transferida": dash_qtd_transferida,
+                "itens_pico": dash_itens_pico,
+                "itens_necessidade": dash_itens_necessidade,
+                "itens_parados": dash_itens_parados,
+            }
+
+            st.session_state.dfs_por_filial = dfs_finais
+            st.session_state.meses_globais = meses_globais
+            st.session_state.dashboard = dashboard
+            st.session_state.analise_concluida = True
+
+        except Exception as e:
+            st.error("❌ Ocorreu um erro durante o processamento.")
+            st.code(traceback.format_exc())
+            st.stop()
 
 
 # ============================================================
 # RESULTADOS
 # ============================================================
+if st.session_state.analise_concluida and st.session_state.dfs_por_filial:
 
-if st.session_state.get(
-    "analise_concluida",
-    False
-):
+    dfs = st.session_state.dfs_por_filial
+    meses_globais = st.session_state.meses_globais
+    dashboard = st.session_state.dashboard
 
-    dfs_por_filial = (
-        st.session_state.dfs_por_filial
-    )
+    st.markdown("---")
 
-    dash_qtd_comprar = (
-        st.session_state.dash_qtd_comprar
-    )
-
-    dash_qtd_transferida = (
-        st.session_state.dash_qtd_transferida
-    )
-
-    dash_itens_pico = (
-        st.session_state.dash_itens_pico
-    )
-
-    dash_itens_ruptura = (
-        st.session_state.dash_itens_ruptura
-    )
-
-    df_p = (
-        st.session_state.df_p
-    )
-
-    meses_globais = (
-        st.session_state.get(
-
-            "meses_globais",
-
-            [
-                "MÊS 1",
-                "MÊS 2",
-                "MÊS 3",
-                "MÊS 4"
-            ]
-
+    # ========================================================
+    # DOWNLOAD EXCEL
+    # ========================================================
+    try:
+        excel_bytes = gerar_excel(
+            dfs,
+            meses_globais,
+            dashboard
         )
+
+        st.download_button(
+            label="📥 EXPORTAR EXCEL - COMPRAS E TRANSFERÊNCIAS",
+            data=excel_bytes,
+            file_name=nome_final_xlsx,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+
+        st.caption(
+            "O Excel é gerado sem filtros automáticos nas colunas. "
+            "A aba 'SUGESTÕES DE COMPRA' mostra apenas compras e a aba "
+            "'TRANSFERÊNCIAS' mostra as transferências sugeridas."
+        )
+
+    except Exception:
+        st.error("❌ Não foi possível gerar o Excel.")
+        st.code(traceback.format_exc())
+
+    st.markdown("---")
+
+    # ========================================================
+    # MÉTRICAS
+    # ========================================================
+    m1, m2, m3, m4, m5 = st.columns(5)
+
+    m1.metric(
+        "📦 Sugestão de compra",
+        f"{dashboard.get('qtd_comprar', 0):,.0f}"
+    )
+
+    m2.metric(
+        "🔄 Transferências",
+        f"{dashboard.get('qtd_transferida', 0):,.0f}"
+    )
+
+    m3.metric(
+        "📈 Vendas atípicas",
+        dashboard.get("itens_pico", 0)
+    )
+
+    m4.metric(
+        "⚠️ Necessidades",
+        dashboard.get("itens_necessidade", 0)
+    )
+
+    m5.metric(
+        "🕒 Parados > 90 dias",
+        dashboard.get("itens_parados", 0)
     )
 
     # ========================================================
     # ABAS
     # ========================================================
-
-    tab1, tab2, tab3, tab4 = st.tabs([
-
+    aba1, aba2, aba3, aba4 = st.tabs([
         "📊 Visão Geral",
-
         "🚨 Top Urgentes",
-
-        "📦 Estoque Parado",
-
-        "🔍 Prévia por Filial"
-
+        "🕒 Estoque Parado",
+        "🏭 Prévia por Filial",
     ])
 
-    # ========================================================
+    # --------------------------------------------------------
     # VISÃO GERAL
-    # ========================================================
-
-    with tab1:
-
-        st.subheader(
-            "Indicadores de Desempenho"
-        )
-
-        c1, c2, c3, c4, c5 = (
-            st.columns(5)
-        )
-
-        c1.metric(
-
-            "🛒 Sugestão de Compra",
-
-            f"{int(dash_qtd_comprar)} un."
-
-        )
-
-        c2.metric(
-
-            "🔄 Economia (Transf.)",
-
-            f"{int(dash_qtd_transferida)} un."
-
-        )
-
-        c3.metric(
-
-            "⚠️ Picos de Vendas",
-
-            f"{int(dash_itens_pico)} itens"
-
-        )
-
-        c4.metric(
-
-            "🚨 Rupturas Críticas",
-
-            f"{int(dash_itens_ruptura)} itens"
-
-        )
-
-        if not df_p.empty:
-
-            f_p = (
-
-                df_p
-                .groupby(
-                    "FILIAL_NOME"
-                )[
-                    "ESTOQUE_DISPONIVEL"
-                ]
-                .sum()
-                .idxmax()
-
-            )
-
-        else:
-
-            f_p = "Nenhuma"
-
-        c5.metric(
-
-            "📦 Maior Estoque Parado",
-
-            f_p
-
-        )
-
-        st.success(
-            "✅ Processamento concluído com sucesso!"
-        )
-
-        # ====================================================
-        # EXPORTAÇÃO
-        # ====================================================
-
-        st.markdown(
-            "---"
-        )
-
-        st.subheader(
-            "📥 Exportação"
-        )
-
-        try:
-
-            arquivo_excel = gerar_excel(
-
-                dfs_por_filial,
-
-                meses_globais
-
-            )
-
-            st.download_button(
-
-                label=(
-                    "📊 Baixar Excel - "
-                    "Sugestões de Compras e Transferências"
-                ),
-
-                data=arquivo_excel.getvalue(),
-
-                file_name=nome_final_xlsx,
-
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-
-                use_container_width=True
-
-            )
-
-            st.caption(
-
-                "O Excel será gerado com uma aba por filial, "
-                "incluindo sugestões de compra e transferências."
-
-            )
-
-        except Exception:
-
-            st.error(
-                "❌ Não foi possível gerar o Excel."
-            )
-
-            st.code(
-                traceback.format_exc()
-            )
-
-    # ========================================================
-    # TOP URGENTES
-    # ========================================================
-
-    with tab2:
-
-        df_all = pd.concat(
-
-            dfs_por_filial.values(),
-
-            ignore_index=True
-
-        )
-
-        df_rupturas = (
-
-            df_all[
-                df_all[
-                    "RUPTURA CRÍTICA"
-                ]
-                == "🚨 CRÍTICA"
-            ]
-
-            .sort_values(
-
-                by="MEDIA",
-
-                ascending=False
-
-            )
-
-        )
-
-        if not df_rupturas.empty:
-
-            st.error(
-
-                "🚨 PRODUTOS EM RUPTURA CRÍTICA "
-                "DETECTADOS (Estoque Zero + Sem Pedido em Andamento)"
-
-            )
-
+    # --------------------------------------------------------
+    with aba1:
+        resumo_filiais = []
+
+        for filial, df in dfs.items():
+            if df.empty:
+                continue
+
+            resumo_filiais.append({
+                "FILIAL": filial,
+                "COMPRA": pd.to_numeric(
+                    df["SUGESTAO_COMPRA"],
+                    errors="coerce"
+                ).fillna(0).sum(),
+                "TRANSFERÊNCIA": pd.to_numeric(
+                    df["SUGESTAO_TRANSFERENCIA"],
+                    errors="coerce"
+                ).fillna(0).sum(),
+                "PARADOS > 90D": pd.to_numeric(
+                    df["ESTOQUE_PARADO_90D"],
+                    errors="coerce"
+                ).fillna(0).sum(),
+            })
+
+        if resumo_filiais:
+            df_resumo = pd.DataFrame(resumo_filiais)
             st.dataframe(
-
-                df_rupturas[
-                    [
-                        "CODIGO",
-                        "DESCRICAO",
-                        "FILIAL_NOME",
-                        "MEDIA",
-                        "SUGESTAO COMPRA",
-                        "FORNECEDOR"
-                    ]
-                ],
-
-                use_container_width=True
-
-            )
-
-        else:
-
-            st.success(
-
-                "✅ Nenhuma ruptura crítica absoluta "
-                "detectada nas filiais!"
-
-            )
-
-        st.markdown(
-            "<br><hr>",
-            unsafe_allow_html=True
-        )
-
-        st.subheader(
-            "🛒 Maior Volume de Compra Sugerido (Top 15)"
-        )
-
-        top_compra = (
-
-            df_all[
-                df_all[
-                    "SUGESTAO COMPRA"
-                ] > 0
-            ]
-
-            .sort_values(
-
-                by="SUGESTAO COMPRA",
-
-                ascending=False
-
-            )
-
-            .head(15)
-
-        )
-
-        st.dataframe(
-
-            top_compra[
-                [
-                    "CODIGO",
-                    "DESCRICAO",
-                    "FILIAL_NOME",
-                    "SUGESTAO COMPRA",
-                    "FORNECEDOR"
-                ]
-            ],
-
-            use_container_width=True
-
-        )
-
-        # ====================================================
-        # TRANSFERÊNCIAS
-        # ====================================================
-
-        st.markdown(
-            "<br>",
-            unsafe_allow_html=True
-        )
-
-        st.subheader(
-            "🔄 Transferências Internas Sugeridas"
-        )
-
-        df_transf = df_all[
-
-            df_all[
-                "TRANS INTERNA"
-            ]
-            .astype(str)
-            .str.strip()
-            != "0"
-
-        ]
-
-        if not df_transf.empty:
-
-            st.dataframe(
-
-                df_transf[
-                    [
-                        "CODIGO",
-                        "DESCRICAO",
-                        "FILIAL_NOME",
-                        "TRANS INTERNA",
-                        "FORNECEDOR"
-                    ]
-                ],
-
-                use_container_width=True
-
-            )
-
-        else:
-
-            st.info(
-                "Nenhuma transferência interna foi sugerida."
-            )
-
-    # ========================================================
-    # ESTOQUE PARADO
-    # ========================================================
-
-    with tab3:
-
-        st.subheader(
-            "Distribuição de Estoque Excedente / Sem Giro"
-        )
-
-        if not df_p.empty:
-
-            grafico_dados = (
-
-                df_p
-                .groupby(
-                    "FILIAL_NOME"
-                )[
-                    "ESTOQUE_DISPONIVEL"
-                ]
-                .sum()
-                .reset_index()
-
+                df_resumo,
+                use_container_width=True,
+                hide_index=True,
             )
 
             fig = px.bar(
+                df_resumo,
+                x="FILIAL",
+                y=["COMPRA", "TRANSFERÊNCIA"],
+                barmode="group",
+                title="Compras x Transferências por filial",
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-                grafico_dados,
+    # --------------------------------------------------------
+    # TOP URGENTES
+    # --------------------------------------------------------
+    with aba2:
+        todos_resultados = [
+            df for df in dfs.values()
+            if df is not None and not df.empty
+        ]
 
-                x="FILIAL_NOME",
-
-                y="ESTOQUE_DISPONIVEL",
-
-                title=(
-                    "Volume de Estoque Acima do "
-                    "Limite de Giro por Filial"
-                ),
-
-                color="ESTOQUE_DISPONIVEL",
-
-                color_continuous_scale="Reds"
-
+        if todos_resultados:
+            df_todos = pd.concat(
+                todos_resultados,
+                ignore_index=True
             )
 
-            st.plotly_chart(
-
-                fig,
-
-                use_container_width=True
-
-            )
-
-        else:
-
-            st.info(
-
-                "Nenhum estoque crítico/parado foi "
-                "detectado com base nos parâmetros configurados."
-
-            )
-
-    # ========================================================
-    # PRÉVIA POR FILIAL
-    # ========================================================
-
-    with tab4:
-
-        st.subheader(
-            "Prévia Colorida dos Dados por Filial"
-        )
-
-        sel_f = st.selectbox(
-
-            "Selecione a Filial para visualizar:",
-
-            list(
-                dfs_por_filial.keys()
-            )
-
-        )
-
-        df_view = (
-            dfs_por_filial[
-                sel_f
-            ].copy()
-        )
-
-        def pintar_tabela(row):
-
-            cols = row.index
-
-            estilos = [
-                ""
-                for _ in range(
-                    len(cols)
+            df_urgentes = df_todos[
+                (
+                    pd.to_numeric(
+                        df_todos["SUGESTAO_COMPRA"],
+                        errors="coerce"
+                    ).fillna(0) > 0
                 )
+                |
+                (
+                    pd.to_numeric(
+                        df_todos["SUGESTAO_TRANSFERENCIA"],
+                        errors="coerce"
+                    ).fillna(0) > 0
+                )
+            ].copy()
+
+            if not df_urgentes.empty:
+                st.dataframe(
+                    df_urgentes[
+                        [
+                            "FILIAL",
+                            "CODIGO",
+                            "DESCRICAO",
+                            "FORNECEDOR",
+                            "MEDIA",
+                            "ESTOQUE",
+                            "SUGESTAO_COMPRA",
+                            "SUGESTAO_TRANSFERENCIA",
+                            "ORIGEM_TRANSFERENCIA",
+                            "DESTINO_TRANSFERENCIA",
+                            "SITUACAO",
+                        ]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.success("Nenhuma compra ou transferência urgente encontrada.")
+
+    # --------------------------------------------------------
+    # ESTOQUE PARADO
+    # --------------------------------------------------------
+    with aba3:
+        todos_resultados = [
+            df for df in dfs.values()
+            if df is not None and not df.empty
+        ]
+
+        if todos_resultados:
+            df_todos = pd.concat(
+                todos_resultados,
+                ignore_index=True
+            )
+
+            df_parados = df_todos[
+                pd.to_numeric(
+                    df_todos["ESTOQUE_PARADO_90D"],
+                    errors="coerce"
+                ).fillna(0) > 0
+            ].copy()
+
+            if not df_parados.empty:
+                st.dataframe(
+                    df_parados[
+                        [
+                            "FILIAL",
+                            "CODIGO",
+                            "DESCRICAO",
+                            "ESTOQUE",
+                            "ESTOQUE_PARADO_90D",
+                            "SUGESTAO_TRANSFERENCIA",
+                            "DESTINO_TRANSFERENCIA",
+                        ]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                grafico = (
+                    df_parados
+                    .groupby("FILIAL", as_index=False)[
+                        "ESTOQUE_PARADO_90D"
+                    ]
+                    .sum()
+                    .sort_values(
+                        "ESTOQUE_PARADO_90D",
+                        ascending=False
+                    )
+                )
+
+                fig = px.bar(
+                    grafico,
+                    x="FILIAL",
+                    y="ESTOQUE_PARADO_90D",
+                    title="Estoque parado há mais de 90 dias por filial",
+                )
+
+                st.plotly_chart(
+                    fig,
+                    use_container_width=True
+                )
+            else:
+                st.success(
+                    "Nenhum produto sem giro por 90 dias foi identificado."
+                )
+
+    # --------------------------------------------------------
+    # PRÉVIA POR FILIAL
+    # --------------------------------------------------------
+    with aba4:
+        for filial, df in dfs.items():
+            st.subheader(f"🏭 {filial}")
+
+            if df.empty:
+                st.info("Nenhum produto encontrado nesta filial.")
+                continue
+
+            colunas_exibicao = [
+                "CODIGO",
+                "DESCRICAO",
+                "FORNECEDOR",
+                *[
+                    f"MES_{i}"
+                    for i in range(1, 5)
+                ],
+                "MEDIA",
+                "ESTOQUE",
+                "RESERVA",
+                "COMPRADA",
+                "SUGESTAO_COMPRA",
+                "SUGESTAO_TRANSFERENCIA",
+                "ORIGEM_TRANSFERENCIA",
+                "DESTINO_TRANSFERENCIA",
+                "ESTOQUE_PARADO_90D",
+                "SITUACAO",
             ]
 
-            def f_idx(nome):
+            colunas_exibicao = [
+                c for c in colunas_exibicao
+                if c in df.columns
+            ]
 
-                if nome in cols:
-
-                    return cols.get_loc(
-                        nome
-                    )
-
-                return -1
-
-            i_parado = f_idx(
-                "ESTOQUE PARADO"
+            st.dataframe(
+                df[colunas_exibicao],
+                use_container_width=True,
+                hide_index=True,
             )
-
-            i_estoque = f_idx(
-                "ESTOQUE"
-            )
-
-            i_atipica = f_idx(
-                "VENDA_ATIPICA"
-            )
-
-            i_compra = f_idx(
-                "SUGESTAO COMPRA"
-            )
-
-            i_transf = f_idx(
-                "TRANS INTERNA"
-            )
-
-            i_comprada = f_idx(
-                "COMPRADA"
-            )
-
-            i_ruptura = f_idx(
-                "RUPTURA CRÍTICA"
-            )
-
-            # -----------------------------------------------
-            # ESTOQUE PARADO
-            # -----------------------------------------------
-
-            if (
-
-                i_parado >= 0
-
-                and "🛑 SIM"
-                in str(
-                    row.get(
-                        "ESTOQUE PARADO",
-                        ""
-                    )
-                )
-
-            ):
-
-                estilos[
-                    i_parado
-                ] = (
-                    "background-color: #F4CCCC; "
-                    "color: black;"
-                )
-
-                if i_estoque >= 0:
-
-                    estilos[
-                        i_estoque
-                    ] = (
-                        "background-color: #F4CCCC; "
-                        "color: black;"
-                    )
-
-            # -----------------------------------------------
-            # VENDA ATÍPICA
-            # -----------------------------------------------
-
-            if (
-
-                i_atipica >= 0
-
-                and "⚠️ SIM"
-                in str(
-                    row.get(
-                        "VENDA_ATIPICA",
-                        ""
-                    )
-                )
-
-            ):
-
-                estilos[
-                    i_atipica
-                ] = (
-                    "background-color: #FFF2CC; "
-                    "color: black;"
-                )
-
-            # -----------------------------------------------
-            # COMPRA
-            # -----------------------------------------------
-
-            if (
-
-                i_compra >= 0
-
-                and pd.to_numeric(
-
-                    row.get(
-                        "SUGESTAO COMPRA",
-                        0
-                    ),
-
-                    errors="coerce"
-
-                ) > 0
-
-            ):
-
-                estilos[
-                    i_compra
-                ] = (
-                    "background-color: #D9EAD3; "
-                    "color: black;"
-                )
-
-            # -----------------------------------------------
-            # TRANSFERÊNCIA
-            # -----------------------------------------------
-
-            if (
-
-                i_transf >= 0
-
-                and str(
-                    row.get(
-                        "TRANS INTERNA",
-                        ""
-                    )
-                ) not in [
-                    "0",
-                    "None",
-                    "",
-                    "nan"
-                ]
-
-            ):
-
-                if (
-
-                    "ESTOQUE MORTO"
-
-                    in str(
-                        row.get(
-                            "TRANS INTERNA",
-                            ""
-                        )
-                    )
-
-                ):
-
-                    estilos[
-                        i_transf
-                    ] = (
-                        "background-color: #C55A11; "
-                        "color: white; "
-                        "font-weight: bold;"
-                    )
-
-                else:
-
-                    estilos[
-                        i_transf
-                    ] = (
-                        "background-color: #C9DAF8; "
-                        "color: black;"
-                    )
-
-            # -----------------------------------------------
-            # COMPRADA
-            # -----------------------------------------------
-
-            if (
-
-                i_comprada >= 0
-
-                and pd.to_numeric(
-
-                    row.get(
-                        "COMPRADA",
-                        0
-                    ),
-
-                    errors="coerce"
-
-                ) > 0
-
-            ):
-
-                estilos[
-                    i_comprada
-                ] = (
-                    "background-color: #FCE5CD; "
-                    "color: black;"
-                )
-
-            # -----------------------------------------------
-            # RUPTURA
-            # -----------------------------------------------
-
-            if (
-
-                i_ruptura >= 0
-
-                and "🚨 CRÍTICA"
-
-                in str(
-                    row.get(
-                        "RUPTURA CRÍTICA",
-                        ""
-                    )
-                )
-
-            ):
-
-                estilos[
-                    i_ruptura
-                ] = (
-                    "background-color: #FFD2D2; "
-                    "color: black; "
-                    "font-weight: bold;"
-                )
-
-                if i_estoque >= 0:
-
-                    estilos[
-                        i_estoque
-                    ] = (
-                        "background-color: #FFD2D2; "
-                        "color: black;"
-                    )
-
-            return estilos
-
-        st.dataframe(
-
-            df_view.style.apply(
-
-                pintar_tabela,
-
-                axis=1
-
-            ),
-
-            use_container_width=True
-
-        )
-
-else:
-
-    st.info(
-
-        "Aguardando documentos. Por favor, "
-        "selecione os ficheiros PDF na barra lateral "
-        "para iniciar a análise."
-
-    )
