@@ -7,7 +7,7 @@ import traceback
 import plotly.express as px
 from io import BytesIO
 from openpyxl import Workbook
-from openpyxl.styles import PatternFill, Font, Border, Side, Alignment
+from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
 st.set_page_config(page_title="Portal Compras - Tapeçaria", layout="wide")
@@ -17,13 +17,17 @@ REGRAS_PADRAO = [
     ["CORTTEX", 50, 20], ["TEX COMPANY", 50, 20], ["CIPATEX", 50, 20],
     ["KARSTEN", 50, 20], ["ETRURIA", 50, 20], ["TELLAIO", 50, 20],
     ["OBER", 50, 20], ["TEXTIL J. SERRANO", 50, 20], ["CKS", 50, 20],
-    ["AGRO QUIMICA", 45, 20], ["ROMPLAS", 30, 15], ["ROMA DUBLADOS", 10, 5],
+    ["AGRO QUIMICA", 45, 20], ["ROMPLAS", 30, 15,], ["ROMA DUBLADOS", 10, 5],
 ]
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
 if not st.session_state.autenticado:
     st.title("🔐 Portal Compras - Tapeçaria")
+    try:
+        st.image("logo.png", use_container_width=True)
+    except Exception:
+        pass
     senha = st.text_input("Digite a senha", type="password")
     if st.button("Entrar", type="primary"):
         if senha == SENHA:
@@ -56,19 +60,20 @@ def limpar_v(v):
 
 
 def meses_do_texto(texto):
-    p = re.compile(r"\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ|AUG|SEP|OCT|DEC)[/-](20\d{2})\b", re.I)
-    out = []
-    for m in p.finditer(texto):
-        x = f"{m.group(1).upper()}/{m.group(2)}"
-        if x not in out:
-            out.append(x)
-    return out
+    # Aceita português e inglês, exatamente como os PDFs reais.
+    pad = re.compile(r"\b(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ|AUG|SEP|OCT|DEC)[/-](20\d{2})\b", re.I)
+    encontrados = []
+    for m in pad.finditer(texto):
+        valor = f"{m.group(1).upper()}/{m.group(2)}"
+        if valor not in encontrados:
+            encontrados.append(valor)
+    return encontrados
 
 
 def fornecedor_da_linha(texto, atual=""):
     m = re.search(r"FORNECEDOR\s*:\s*(.+)", texto, re.I)
     if m:
-        return m.group(1).strip()
+        return m.group(1).strip().split(" - ")[0].strip()
     m = re.search(r"SEGMENTO\s*:\s*(.+)", texto, re.I)
     if m:
         return m.group(1).strip()
@@ -76,324 +81,500 @@ def fornecedor_da_linha(texto, atual=""):
 
 
 def extrair_produto(linha):
-    """Lê o padrão real dos PDFs: CODIGO DESCRIÇÃO UN/1|MT/1 + 10 números."""
+    """Extrai produto no formato real: CODIGO DESCRIÇÃO UN/1 ou MT/1 + 10 valores."""
     s = re.sub(r"\s+", " ", linha.strip())
-    m = re.match(r"^(?:\*+\s*)?(\d{3,6})\s+(.+)$", s)
+    # Mantém asteriscos apenas como marca do relatório e remove-os do código.
+    s = re.sub(r"^\*+\s*", "", s)
+    m = re.match(r"^(\d{3,7})\s+(.+)$", s)
     if not m:
         return None
+
     codigo, resto = m.group(1), m.group(2).strip()
+    # A embalagem é realmente informada no PDF como UN/1 ou MT/1.
     embs = list(re.finditer(r"\b(UN|MT)\s*/\s*\d+(?:[.,]\d+)?\b", resto, re.I))
     if not embs:
         return None
     em = embs[-1]
     descricao = resto[:em.start()].strip()
     emb = em.group(1).upper()
-    nums = resto[em.end():].strip().split()
-    # MES1 MES2 MES3 MES4 MEDIA ESTOQUE RESERVA MESES COMPRADA SITUACAO
-    if len(nums) < 10:
+    tokens = resto[em.end():].strip().split()
+    if len(tokens) < 10:
         return None
-    nums = nums[:10]
-    if not all(re.fullmatch(r"-?(?:\d+(?:[.,]\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?)", x) for x in nums):
-        return None
-    vals = [limpar_v(x) for x in nums]
+
+    tokens = tokens[:10]
+    vals = [limpar_v(x) for x in tokens]
     return {
-        "CODIGO": codigo, "DESCRICAO": descricao, "EMB.": emb,
+        "CODIGO": codigo,
+        "DESCRICAO": descricao,
+        "EMB.": emb,
         "MES_1": vals[0], "MES_2": vals[1], "MES_3": vals[2], "MES_4": vals[3],
         "MEDIA_SISTEMA": vals[4], "ESTOQUE": vals[5], "RESERVA": vals[6],
         "MESES_ESTOQUE": vals[7], "COMPRADA": vals[8], "SITUACAO": vals[9],
     }
 
 
-def extrair_pdf(arquivo):
-    registros, meses, fornecedor, filial = [], [], "", ""
-    with pdfplumber.open(arquivo) as pdf:
+def extrair_dados_pdf_web(file):
+    dados = []
+    meses_cabecalho = []
+    nome_filial = file.name.rsplit(".", 1)[0].upper()
+    fornecedor_atual = "DESCONHECIDO"
+
+    with pdfplumber.open(file) as pdf:
         for page in pdf.pages:
-            texto = page.extract_text() or ""
-            if not texto:
+            text = page.extract_text() or ""
+            if not text:
                 continue
-            if not meses:
-                meses = meses_do_texto(texto)[:4]
-            fornecedor = fornecedor_da_linha(texto, fornecedor)
-            mf = re.search(r"MEDIA\s+DE\s+VENDAS\s+FILIAL\s*-\s*(.+?)(?:\s+\d{2}/\d{2}/\d{4}|\s*$)", texto, re.I)
+
+            if not meses_cabecalho:
+                meses_cabecalho = meses_do_texto(text)[:4]
+
+            fornecedor_atual = fornecedor_da_linha(text, fornecedor_atual)
+            mf = re.search(
+                r"MEDIA\s+DE\s+VENDAS\s+FILIAL\s*-\s*(.+?)(?:\s+\d{2}/\d{2}/\d{4}|\s*$)",
+                text, re.I
+            )
             if mf:
-                filial = mf.group(1).strip()
-            for linha in texto.splitlines():
-                p = extrair_produto(linha)
-                if p:
-                    p["FILIAL_NOME"] = filial
-                    p["FORNECEDOR"] = fornecedor
-                    registros.append(p)
-    if not meses:
-        meses = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
-    df = pd.DataFrame(registros)
+                nome_filial = mf.group(1).strip()
+
+            for linha in text.splitlines():
+                produto = extrair_produto(linha)
+                if produto:
+                    produto["FILIAL_NOME"] = nome_filial
+                    produto["FORNECEDOR"] = fornecedor_atual
+                    dados.append(produto)
+
+    if not meses_cabecalho:
+        meses_cabecalho = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
+    while len(meses_cabecalho) < 4:
+        meses_cabecalho.append(f"MÊS {len(meses_cabecalho)+1}")
+
+    df = pd.DataFrame(dados)
     if not df.empty:
         df = df.drop_duplicates(["FILIAL_NOME", "CODIGO", "DESCRICAO"], keep="first").reset_index(drop=True)
-    return df, meses
-
-
-def regras_df():
-    if "df_regras" not in st.session_state:
-        st.session_state.df_regras = pd.DataFrame(REGRAS_PADRAO, columns=["FORNECEDOR", "MÚLTIPLO", "TOLERÂNCIA"])
-    return st.session_state.df_regras
-
-
-def regra_fornecedor(fornecedor, regras):
-    f = str(fornecedor or "").upper()
-    for nome, multiplo, tol in regras:
-        if str(nome).upper().strip() and str(nome).upper().strip() in f:
-            return max(1, int(float(multiplo))), float(tol)
-    return 50, 20
+    return df, meses_cabecalho[:4]
 
 
 def normalizar_regras(df):
-    out = []
-    for _, r in df.iterrows():
+    regras = []
+    for _, row in df.iterrows():
         try:
-            nome = str(r.get("FORNECEDOR", "")).strip()
-            if nome:
-                out.append([nome, max(1, int(float(r.get("MÚLTIPLO", 50)))), float(r.get("TOLERÂNCIA", 20))])
+            nome = str(row.get("FORNECEDOR", "")).strip()
+            if not nome:
+                continue
+            mult = max(1, int(float(row.get("MÚLTIPLO", row.get("MULTIPLO", 50)))))
+            tol = float(row.get("TOLERÂNCIA", 20))
+            regras.append((nome.upper(), mult, tol))
         except Exception:
-            pass
-    return out
+            continue
+    return regras
+
+
+def regra_fornecedor(fornecedor, regras):
+    fornecedor = str(fornecedor or "").upper()
+    for nome, mult, tol in regras:
+        if nome and nome in fornecedor:
+            return mult, tol
+    return 1, 0
+
+
+def coluna_numerica(df, coluna, padrao=0):
+    if coluna not in df.columns:
+        return pd.Series(padrao, index=df.index, dtype=float)
+    return pd.to_numeric(df[coluna], errors="coerce").fillna(padrao)
 
 
 def preparar_export(df, meses):
     x = df.copy()
-    mapa = {"MES_1": meses[0], "MES_2": meses[1], "MES_3": meses[2], "MES_4": meses[3], "MEDIA_SISTEMA": "MEDIA"}
-    for a, b in mapa.items():
-        if a in x.columns:
-            x[b] = x[a]
-    ordem = ["FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.", mapa["MES_1"], mapa["MES_2"], mapa["MES_3"], mapa["MES_4"], "MEDIA", "ESTOQUE", "RESERVA", "COMPRADA", "SUGESTAO COMPRA", "SUGESTAO TRANSFERENCIA", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA", "RUPTURA CRÍTICA", "VENDA_ATIPICA", "ESTOQUE PARADO", "PARADO_90D", "SITUACAO", "MESES_ESTOQUE", "FORNECEDOR"]
+    while len(meses) < 4:
+        meses.append(f"MÊS {len(meses)+1}")
+
+    mapa = {
+        "MES_1": meses[0], "MES_2": meses[1], "MES_3": meses[2], "MES_4": meses[3],
+        "MEDIA_SISTEMA": "MEDIA",
+    }
+    for origem, destino in mapa.items():
+        if origem in x.columns:
+            x[destino] = x[origem]
+
+    # Mantém o padrão tabular anterior; só entram as novas colunas solicitadas.
+    ordem = [
+        "FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.",
+        meses[0], meses[1], meses[2], meses[3], "MEDIA",
+        "ESTOQUE", "RESERVA", "COMPRADA", "SUGESTAO COMPRA",
+        "SUGESTAO TRANSFERENCIA", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA",
+        "RUPTURA CRÍTICA", "VENDA_ATIPICA", "ESTOQUE PARADO", "PARADO_90D",
+        "SITUACAO", "MESES_ESTOQUE", "FORNECEDOR"
+    ]
     for c in ordem:
         if c not in x.columns:
             x[c] = ""
     x = x[ordem]
+
+    texto = {"FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA", "FORNECEDOR"}
     for c in x.columns:
-        if c not in {"FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA", "FORNECEDOR"}:
+        if c not in texto:
             x[c] = pd.to_numeric(x[c], errors="coerce").fillna(0)
     return x
 
 
 def escrever_planilha(ws, df):
     if df.empty:
-        ws.append(["Nenhum registro"])
         return
-    for c, nome in enumerate(df.columns, 1):
-        ws.cell(1, c, nome)
+    for col, nome in enumerate(df.columns, 1):
+        ws.cell(1, col, nome)
     for row in df.itertuples(index=False, name=None):
         vals = []
-        for v in row:
-            vals.append("" if pd.isna(v) else (int(v) if isinstance(v, (int, float)) and float(v).is_integer() else v))
+        for value in row:
+            if pd.isna(value):
+                vals.append("")
+            elif isinstance(value, (int, float)) and float(value).is_integer():
+                vals.append(int(value))
+            else:
+                vals.append(value)
         ws.append(vals)
-    fill = PatternFill("solid", fgColor="17365D")
-    font = Font(color="FFFFFF", bold=True)
+
+    header_fill = PatternFill("solid", fgColor="17365D")
+    header_font = Font(color="FFFFFF", bold=True)
     for cell in ws[1]:
-        cell.fill, cell.font = fill, font
+        cell.fill = header_fill
+        cell.font = header_font
         cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = None  # SEM FILTROS
-    heads = {c.value: c.column for c in ws[1]}
-    cores = {"SUGESTAO COMPRA": "E2F0D9", "SUGESTAO TRANSFERENCIA": "DDEBF7", "RUPTURA CRÍTICA": "F4CCCC", "PARADO_90D": "FCE4D6"}
-    for nome, cor in cores.items():
-        if nome in heads:
-            fillc = PatternFill("solid", fgColor=cor)
-            for r in range(2, ws.max_row + 1): ws.cell(r, heads[nome]).fill = fillc
-    for i in range(1, ws.max_column + 1):
-        letter = get_column_letter(i)
-        mx = max((len(str(ws.cell(r, i).value or "")) for r in range(1, ws.max_row + 1)), default=10)
-        ws.column_dimensions[letter].width = min(max(mx + 2, 10), 45)
 
-
-def gerar_excel(dfs, meses):
-    wb = Workbook(); wb.remove(wb.active)
-    # Resumo
-    ws = wb.create_sheet("RESUMO")
-    total_c = total_t = 0
-    linhas = []
-    for filial, df in dfs.items():
-        c = pd.to_numeric(df["SUGESTAO COMPRA"], errors="coerce").fillna(0).sum()
-        t = pd.to_numeric(df["SUGESTAO TRANSFERENCIA"], errors="coerce").fillna(0).sum()
-        total_c += c; total_t += t
-        linhas.append([filial, c, t])
-    ws.append(["RELATÓRIO DE COMPRAS - TAPEÇARIA"]); ws.merge_cells("A1:C1")
-    ws.append([]); ws.append(["INDICADOR", "VALOR"])
-    ws.append(["Sugestão de compra", total_c]); ws.append(["Sugestão de transferência", total_t])
-    ws.append([]); ws.append(["FILIAL", "COMPRA", "TRANSFERÊNCIA"])
-    for l in linhas: ws.append(l)
-    ws["A1"].font = Font(size=16, bold=True, color="FFFFFF"); ws["A1"].fill = PatternFill("solid", fgColor="17365D"); ws["A1"].alignment = Alignment(horizontal="center")
-    for row in (3, 7):
-        for c in ws[row]: c.font = Font(bold=True)
-    ws.column_dimensions["A"].width = 35; ws.column_dimensions["B"].width = 22; ws.column_dimensions["C"].width = 22
+    # Importante: não colocar AutoFilter/Tabela. O Excel abre sem filtros.
     ws.auto_filter.ref = None
-    # Compra e transferência
-    for nome, campo in [("SUGESTÕES DE COMPRA", "SUGESTAO COMPRA"), ("TRANSFERÊNCIAS", "SUGESTAO TRANSFERENCIA")]:
-        ws = wb.create_sheet(nome)
-        frames = []
-        for filial, df in dfs.items():
-            z = df[pd.to_numeric(df[campo], errors="coerce").fillna(0) > 0].copy()
-            if not z.empty: frames.append(z)
-        z = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
-        escrever_planilha(ws, preparar_export(z, meses) if not z.empty else z)
-    # Filiais
-    usados = {"RESUMO", "SUGESTÕES DE COMPRA", "TRANSFERÊNCIAS"}
-    for filial, df in dfs.items():
+    ws.freeze_panes = "A2"
+
+    heads = {cell.value: cell.column for cell in ws[1]}
+    destaques = {
+        "SUGESTAO COMPRA": "E2F0D9",
+        "SUGESTAO TRANSFERENCIA": "DDEBF7",
+        "RUPTURA CRÍTICA": "F4CCCC",
+        "PARADO_90D": "FCE4D6",
+    }
+    for nome, cor in destaques.items():
+        if nome in heads:
+            fill = PatternFill("solid", fgColor=cor)
+            for r in range(2, ws.max_row + 1):
+                ws.cell(r, heads[nome]).fill = fill
+
+    for i in range(1, ws.max_column + 1):
+        letra = get_column_letter(i)
+        maior = max((len(str(ws.cell(r, i).value or "")) for r in range(1, ws.max_row + 1)), default=10)
+        ws.column_dimensions[letra].width = min(max(maior + 2, 10), 45)
+
+
+def gerar_excel(dfs_por_filial, meses):
+    """Exportação mantendo o padrão anterior: uma aba por filial, sem filtros."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    usados = set()
+
+    for filial, df in dfs_por_filial.items():
         base = re.sub(r'[\[\]:*?/\\]', '_', str(filial))[:31] or "FILIAL"
-        nome = base; n = 2
+        nome = base
+        contador = 2
         while nome in usados:
-            suf = f"_{n}"; nome = base[:31-len(suf)] + suf; n += 1
+            sufixo = f"_{contador}"
+            nome = base[:31-len(sufixo)] + sufixo
+            contador += 1
         usados.add(nome)
         ws = wb.create_sheet(nome)
-        escrever_planilha(ws, preparar_export(df, meses))
-    buf = BytesIO(); wb.save(buf); return buf.getvalue()
+        escrever_planilha(ws, preparar_export(df, list(meses)))
 
-# Sidebar
-st.sidebar.title("📋 Portal Compras")
-if "uploader_key" not in st.session_state: st.session_state.uploader_key = 0
-if "analise_concluida" not in st.session_state: st.session_state.analise_concluida = False
+    if not wb.sheetnames:
+        wb.create_sheet("RELATORIO")
 
-arquivos = st.sidebar.file_uploader("Importe os relatórios PDF", type=["pdf"], accept_multiple_files=True, key=f"pdfs_{st.session_state.uploader_key}")
-if st.sidebar.button("🗑️ Limpar dados"):
-    st.session_state.analise_concluida = False; st.session_state.dfs_por_filial = {}; st.session_state.uploader_key += 1; st.rerun()
+    buffer = BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
 
-meta = st.sidebar.number_input("Meta de estoque (meses)", min_value=0.0, value=2.0, step=0.5)
-retencao = st.sidebar.number_input("Retenção de segurança (meses)", min_value=0.0, value=3.0, step=0.5)
-fator_pico = st.sidebar.number_input("Fator para venda atípica", min_value=1.0, value=2.5, step=0.5)
-dias_parado = st.sidebar.number_input("Dias parado para transferência", min_value=90, value=90, step=30)
-nome_excel = st.sidebar.text_input("Nome do Excel", "Relatorio_Compras_Tapecaria")
-if not nome_excel.lower().endswith(".xlsx"): nome_excel += ".xlsx"
 
-st.sidebar.subheader("📦 Regras por fornecedor")
-st.session_state.df_regras = st.sidebar.data_editor(regras_df(), num_rows="dynamic", use_container_width=True)
+# =============================
+# INTERFACE ORIGINAL
+# =============================
+if "df_regras" not in st.session_state:
+    st.session_state.df_regras = pd.DataFrame(REGRAS_PADRAO, columns=["FORNECEDOR", "MÚLTIPLO", "TOLERÂNCIA"])
 
-if arquivos and st.sidebar.button("🚀 Processar relatórios", type="primary"):
+with st.sidebar:
     try:
-        todos, periodos = [], []
-        with st.spinner("Lendo os PDFs..."):
-            for arq in arquivos:
-                df, meses = extrair_pdf(arq)
-                if df.empty: st.warning(f"Nenhum produto encontrado em {arq.name}")
-                else:
-                    todos.append(df); periodos.append(meses)
-        if not todos: st.error("Nenhum produto foi encontrado."); st.stop()
-        meses = periodos[0][:4]
-        if len(meses) < 4: meses = ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"]
-        df_all = pd.concat(todos, ignore_index=True)
-        for c in ["MES_1","MES_2","MES_3","MES_4","MEDIA_SISTEMA","ESTOQUE","RESERVA","MESES_ESTOQUE","COMPRADA","SITUACAO"]:
-            df_all[c] = pd.to_numeric(df_all[c], errors="coerce").fillna(0)
-        df_all["EMB."] = df_all["EMB."].astype(str).str.upper().where(df_all["EMB."].astype(str).str.upper().isin(["MT","UN"]), "UN")
-        regras = normalizar_regras(st.session_state.df_regras)
-        # Necessidade por filial/código/unidade e estoque excedente por filial/código/unidade.
-        necessidades = {}
-        excesso = {}
-        for _, r in df_all.iterrows():
-            key = (str(r.FILIAL_NOME).strip().upper(), str(r.CODIGO).strip(), str(r["EMB."]).upper())
-            disponivel = r.ESTOQUE + r.COMPRADA - r.RESERVA
-            necessidades[key] = max(0, r.MEDIA_SISTEMA * meta - disponivel)
-            minimo = r.MEDIA_SISTEMA * retencao
-            excesso[key] = max(0, r.ESTOQUE - r.RESERVA - minimo) if r.MEDIA_SISTEMA > 0 else max(0, r.ESTOQUE - r.RESERVA)
-        saida = {}
-        for filial, df in df_all.groupby("FILIAL_NOME", sort=False):
-            df = df.copy()
-            for c in ["SUGESTAO COMPRA","SUGESTAO TRANSFERENCIA","ESTOQUE PARADO"]: df[c] = 0.0
-            for c in ["ORIGEM TRANSFERENCIA","DESTINO TRANSFERENCIA"]: df[c] = ""
-            df["RUPTURA CRÍTICA"] = 0; df["VENDA_ATIPICA"] = 0; df["PARADO_90D"] = 0; df["MEDIA"] = df["MEDIA_SISTEMA"]
-            for idx, r in df.iterrows():
-                vendas = [r.MES_1, r.MES_2, r.MES_3, r.MES_4]
-                media, estoque, reserva, comprada = map(float, [r.MEDIA_SISTEMA, r.ESTOQUE, r.RESERVA, r.COMPRADA])
-                df.at[idx,"RUPTURA CRÍTICA"] = int(estoque <= 0 and comprada <= 0 and media > 0)
-                df.at[idx,"VENDA_ATIPICA"] = int(media > 0 and max(vendas) > media * fator_pico)
-                df.at[idx,"ESTOQUE PARADO"] = estoque if estoque > 0 and sum(vendas) == 0 else 0
-                # Com 4 meses no relatório, ausência de venda nos 3 meses anteriores é o indicador de +90 dias.
-                df.at[idx,"PARADO_90D"] = int(estoque > 0 and sum(vendas[:3]) == 0)
-                key_dest = (str(filial).strip().upper(), str(r.CODIGO).strip(), str(r["EMB."]).upper())
-                necessidade = necessidades.get(key_dest, 0)
-                transfer = 0; origens = []
-                if necessidade > 0:
-                    for origem, _ in df_all.groupby("FILIAL_NOME", sort=False):
-                        key_org = (str(origem).strip().upper(), str(r.CODIGO).strip(), str(r["EMB."]).upper())
-                        if key_org == key_dest: continue
-                        q = min(necessidade-transfer, excesso.get(key_org, 0))
-                        q = math.floor(q)
-                        if q > 0:
-                            transfer += q; excesso[key_org] -= q; origens.append(f"{q:g} de {origem}")
-                        if transfer >= necessidade: break
-                df.at[idx,"SUGESTAO TRANSFERENCIA"] = transfer
-                df.at[idx,"ORIGEM TRANSFERENCIA"] = " + ".join(origens)
-                df.at[idx,"DESTINO TRANSFERENCIA"] = str(filial) if transfer > 0 else ""
-                restante = max(0, necessidade-transfer)
-                mult, tol = regra_fornecedor(r.FORNECEDOR, regras)
-                if restante > 0:
-                    compra = math.ceil(restante / mult) * mult
-                    if compra < tol: compra = mult
-                    df.at[idx,"SUGESTAO COMPRA"] = compra
-            saida[filial] = df
-        st.session_state.dfs_por_filial = saida
-        st.session_state.meses_globais = meses
-        st.session_state.analise_concluida = True
-        st.success("Análise concluída: " + " | ".join(meses))
+        st.image("logo.png", use_container_width=True)
     except Exception:
-        st.error("Erro durante o processamento.")
+        pass
+    st.markdown("---")
+    st.header("📂 Nova Compra")
+    uploaded_files = st.file_uploader(
+        "Selecione os PDFs das Unidades", type="pdf", accept_multiple_files=True
+    )
+    st.markdown("---")
+
+    with st.expander("⚙️ Configurações Avançadas"):
+        meta = st.number_input("Meta de estoque (meses)", min_value=1.0, value=2.0, step=0.5)
+        meses_parado = st.number_input("Considerar estoque parado após (meses)", min_value=1.0, value=3.0, step=1.0)
+        fator_pico = st.number_input("Sensibilidade de Pico (x vezes a média)", min_value=1.5, value=2.5, step=0.5)
+        nome_sugerido = st.text_input("Nome do ficheiro Excel", value="Relatorio_Compras_Tapecaria")
+        nome_final_xlsx = nome_sugerido if nome_sugerido.lower().endswith(".xlsx") else f"{nome_sugerido}.xlsx"
+
+    with st.expander("🏭 Fornecedores e Múltiplos"):
+        st.caption("Edite ou adicione regras na tabela abaixo.")
+        st.session_state.df_regras = st.data_editor(
+            st.session_state.df_regras, num_rows="dynamic", use_container_width=True, hide_index=True
+        )
+
+col1, col2 = st.columns([1, 15])
+with col1:
+    try:
+        st.image("simbolo.png", width=50)
+    except Exception:
+        pass
+with col2:
+    st.title("Inteligência de Compras")
+st.markdown("##### Portal Operacional - Tapeçaria")
+
+# =============================
+# PROCESSAMENTO AUTOMÁTICO — SEM BOTÃO NOVO
+# =============================
+if uploaded_files:
+    try:
+        dfs_por_filial = {}
+        todos_dados = []
+        meses_globais = []
+
+        with st.spinner("🔍 Processando arquivos PDF e calculando regras de estoque..."):
+            for arquivo in uploaded_files:
+                df, meses = extrair_dados_pdf_web(arquivo)
+                if not df.empty:
+                    chave = arquivo.name.rsplit(".", 1)[0].upper()
+                    dfs_por_filial[chave] = df
+                    todos_dados.append(df)
+                    if not meses_globais:
+                        meses_globais = meses[:4]
+
+            if not todos_dados:
+                st.error("⚠️ O sistema não encontrou produtos compatíveis nos PDFs.")
+                st.stop()
+
+            if len(meses_globais) < 4:
+                meses_globais = (meses_globais + ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"])[:4]
+
+            df_global = pd.concat(todos_dados, ignore_index=True)
+            for col in ["MES_1", "MES_2", "MES_3", "MES_4", "MEDIA_SISTEMA", "ESTOQUE", "RESERVA", "MESES_ESTOQUE", "COMPRADA", "SITUACAO"]:
+                df_global[col] = pd.to_numeric(df_global[col], errors="coerce").fillna(0)
+            df_global["EMB."] = df_global["EMB."].astype(str).str.upper().where(
+                df_global["EMB."].astype(str).str.upper().isin(["MT", "UN"]), "UN"
+            )
+
+            regras = normalizar_regras(st.session_state.df_regras)
+            tracker = {}
+            for _, row in df_global.iterrows():
+                chave = (str(row["FILIAL_NOME"]).strip().upper(), str(row["CODIGO"]).strip(), str(row["EMB."]).upper())
+                estoque = float(row["ESTOQUE"])
+                media = float(row["MEDIA_SISTEMA"])
+                reserva = float(row["RESERVA"])
+                excesso = estoque if media == 0 else max(0.0, estoque - reserva - media * 3)
+                tracker[chave] = excesso
+
+            # necessidade por filial/código/unidade
+            necessidades = {}
+            for _, row in df_global.iterrows():
+                chave = (str(row["FILIAL_NOME"]).strip().upper(), str(row["CODIGO"]).strip(), str(row["EMB."]).upper())
+                disponivel = float(row["ESTOQUE"]) + float(row["COMPRADA"]) - float(row["RESERVA"])
+                necessidades[chave] = max(0.0, float(row["MEDIA_SISTEMA"]) * meta - disponivel)
+
+            saida = {}
+            for filial, df in df_global.groupby("FILIAL_NOME", sort=False):
+                df = df.copy()
+                df["MEDIA"] = df["MEDIA_SISTEMA"]
+                df["SUGESTAO COMPRA"] = 0.0
+                df["SUGESTAO TRANSFERENCIA"] = 0.0
+                df["ORIGEM TRANSFERENCIA"] = ""
+                df["DESTINO TRANSFERENCIA"] = ""
+                df["RUPTURA CRÍTICA"] = 0
+                df["VENDA_ATIPICA"] = 0
+                df["ESTOQUE PARADO"] = 0.0
+                df["PARADO_90D"] = 0
+
+                for idx, row in df.iterrows():
+                    vendas = [float(row["MES_1"]), float(row["MES_2"]), float(row["MES_3"]), float(row["MES_4"])]
+                    media = float(row["MEDIA_SISTEMA"])
+                    estoque = float(row["ESTOQUE"])
+                    reserva = float(row["RESERVA"])
+                    comprada = float(row["COMPRADA"])
+                    codigo = str(row["CODIGO"]).strip()
+                    emb = str(row["EMB."]).upper()
+                    chave_dest = (str(filial).strip().upper(), codigo, emb)
+
+                    df.at[idx, "RUPTURA CRÍTICA"] = int(estoque <= 0 and comprada <= 0 and media > 0)
+                    df.at[idx, "VENDA_ATIPICA"] = int(media > 0 and max(vendas) > media * fator_pico)
+                    df.at[idx, "ESTOQUE PARADO"] = estoque if estoque > 0 and sum(vendas) == 0 else 0
+                    # +90 dias: sem venda nos 3 meses anteriores e com estoque.
+                    df.at[idx, "PARADO_90D"] = int(estoque > 0 and sum(vendas[:3]) == 0)
+
+                    necessidade = necessidades.get(chave_dest, 0.0)
+                    transferencia = 0.0
+                    origens = []
+
+                    # Compra continua com a mesma lógica, mas a transferência usa também a unidade.
+                    if necessidade > 0:
+                        for chave_org in list(tracker.keys()):
+                            origem_filial, origem_codigo, origem_emb = chave_org
+                            if origem_codigo != codigo or origem_emb != emb or origem_filial == str(filial).strip().upper():
+                                continue
+                            disponivel_transferir = tracker[chave_org]
+                            if disponivel_transferir <= 0:
+                                continue
+                            qtd = min(necessidade, disponivel_transferir)
+                            qtd = math.floor(qtd)
+                            if qtd <= 0:
+                                continue
+                            transferencia += qtd
+                            necessidade -= qtd
+                            tracker[chave_org] -= qtd
+                            origens.append(f"{qtd:g} de {origem_filial}")
+                            if necessidade <= 0:
+                                break
+
+                    df.at[idx, "SUGESTAO TRANSFERENCIA"] = transferencia
+                    df.at[idx, "ORIGEM TRANSFERENCIA"] = " + ".join(origens)
+                    df.at[idx, "DESTINO TRANSFERENCIA"] = str(filial) if transferencia > 0 else ""
+
+                    restante = max(0.0, necessidade)
+                    mult, tol = regra_fornecedor(row["FORNECEDOR"], regras)
+                    if restante > 0:
+                        compra = math.ceil(restante / mult) * mult
+                        if compra < tol:
+                            compra = mult
+                        df.at[idx, "SUGESTAO COMPRA"] = compra
+
+                saida[filial] = df
+
+            st.session_state.dfs_por_filial = saida
+            st.session_state.meses_globais = meses_globais
+            st.session_state.analise_concluida = True
+
+    except Exception:
+        st.error("⚠️ Erro durante o processamento dos relatórios.")
         st.code(traceback.format_exc())
 
+# =============================
+# DASHBOARD — MESMO PADRÃO
+# =============================
 if st.session_state.get("analise_concluida", False):
     dfs = st.session_state.get("dfs_por_filial", {})
     meses = st.session_state.get("meses_globais", ["MÊS 1", "MÊS 2", "MÊS 3", "MÊS 4"])
 
-    # Compatibilidade com sessões antigas: garante que todas as colunas novas
-    # existam mesmo se o usuário atualizou o código sem clicar em Processar.
-    colunas_novas = {
-        "SUGESTAO COMPRA": 0.0,
-        "SUGESTAO TRANSFERENCIA": 0.0,
-        "ORIGEM TRANSFERENCIA": "",
-        "DESTINO TRANSFERENCIA": "",
-        "RUPTURA CRÍTICA": 0,
-        "VENDA_ATIPICA": 0,
-        "ESTOQUE PARADO": 0.0,
-        "PARADO_90D": 0,
-        "MEDIA": 0.0,
-    }
-    for _filial, _df in dfs.items():
-        for _col, _valor in colunas_novas.items():
-            if _col not in _df.columns:
-                _df[_col] = _valor
-        dfs[_filial] = _df
-
     if not dfs:
-        st.info("Importe os PDFs e clique em Processar relatórios.")
+        st.info("Importe os PDFs para iniciar a análise.")
         st.stop()
 
+    # Compatibilidade com dados antigos em sessão.
+    for filial, df in dfs.items():
+        defaults = {
+            "SUGESTAO COMPRA": 0.0, "SUGESTAO TRANSFERENCIA": 0.0,
+            "ORIGEM TRANSFERENCIA": "", "DESTINO TRANSFERENCIA": "",
+            "RUPTURA CRÍTICA": 0, "VENDA_ATIPICA": 0, "ESTOQUE PARADO": 0.0,
+            "PARADO_90D": 0, "MEDIA": df["MEDIA_SISTEMA"] if "MEDIA_SISTEMA" in df.columns else 0.0,
+        }
+        for col, valor in defaults.items():
+            if col not in df.columns:
+                df[col] = valor
+        dfs[filial] = df
+
     all_df = pd.concat(dfs.values(), ignore_index=True)
-    compra = pd.to_numeric(all_df.get("SUGESTAO COMPRA", 0), errors="coerce").fillna(0).sum()
-    transf = pd.to_numeric(all_df.get("SUGESTAO TRANSFERENCIA", 0), errors="coerce").fillna(0).sum()
-    ruptura = int(pd.to_numeric(all_df.get("RUPTURA CRÍTICA", 0), errors="coerce").fillna(0).sum()); parado = pd.to_numeric(all_df.get("ESTOQUE PARADO", 0), errors="coerce").fillna(0).sum(); p90 = int(pd.to_numeric(all_df.get("PARADO_90D", 0), errors="coerce").fillna(0).sum())
-    st.title("📊 Portal Compras - Tapeçaria")
+    compra = coluna_numerica(all_df, "SUGESTAO COMPRA").sum()
+    transf = coluna_numerica(all_df, "SUGESTAO TRANSFERENCIA").sum()
+    ruptura = int(coluna_numerica(all_df, "RUPTURA CRÍTICA").sum())
+    parado = coluna_numerica(all_df, "ESTOQUE PARADO").sum()
+    p90 = int(coluna_numerica(all_df, "PARADO_90D").sum())
+
     st.caption("Período identificado: **" + " | ".join(meses) + "**")
-    a,b,c,d,e = st.columns(5)
-    a.metric("Sugestão compra", f"{compra:,.0f}".replace(",",".")); b.metric("Transferências", f"{transf:,.0f}".replace(",",".")); c.metric("Rupturas", ruptura); d.metric("Estoque parado", f"{parado:,.0f}".replace(",",".")); e.metric("Parados +90d", p90)
+
+    a, b, c, d, e = st.columns(5)
+    a.metric("Sugestão compra", f"{compra:,.0f}".replace(",", "."))
+    b.metric("Transferências", f"{transf:,.0f}".replace(",", "."))
+    c.metric("Rupturas", ruptura)
+    d.metric("Estoque parado", f"{parado:,.0f}".replace(",", "."))
+    e.metric("Parados +90d", p90)
+
+    # Botão de exportação, sem filtros no arquivo.
     try:
-        xlsx = gerar_excel(dfs, meses)
-        st.download_button("📥 EXPORTAR EXCEL", xlsx, file_name=nome_excel, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
+        arquivo_excel = gerar_excel(dfs, list(meses))
+        st.download_button(
+            "📥 EXPORTAR EXCEL",
+            data=arquivo_excel,
+            file_name=nome_final_xlsx,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
     except Exception:
-        st.error("Erro ao gerar Excel."); st.code(traceback.format_exc())
-    t1,t2,t3,t4 = st.tabs(["📋 Visão Geral","🚨 Top Urgentes","📦 Estoque Parado","🏢 Prévia por Filial"])
-    with t1:
-        resumo=[]
-        for filial,df in dfs.items(): resumo.append({"FILIAL":filial,"SUGESTÃO COMPRA":df["SUGESTAO COMPRA"].sum(),"TRANSFERÊNCIAS":df["SUGESTAO TRANSFERENCIA"].sum(),"RUPTURAS":int(df["RUPTURA CRÍTICA"].sum()),"PARADOS +90D":int(df["PARADO_90D"].sum())})
+        st.error("Erro ao gerar Excel.")
+        st.code(traceback.format_exc())
+
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📋 Visão Geral", "🚨 Top Urgentes", "📦 Estoque Parado", "🏢 Prévia por Filial"
+    ])
+
+    with tab1:
+        resumo = []
+        for filial, df in dfs.items():
+            resumo.append({
+                "FILIAL": filial,
+                "SUGESTÃO COMPRA": coluna_numerica(df, "SUGESTAO COMPRA").sum(),
+                "TRANSFERÊNCIAS": coluna_numerica(df, "SUGESTAO TRANSFERENCIA").sum(),
+                "RUPTURAS": int(coluna_numerica(df, "RUPTURA CRÍTICA").sum()),
+                "PARADOS +90D": int(coluna_numerica(df, "PARADO_90D").sum()),
+            })
         st.dataframe(pd.DataFrame(resumo), use_container_width=True, hide_index=True)
-    with t2:
-        u=all_df[(all_df["RUPTURA CRÍTICA"]>0)|(all_df["SUGESTAO COMPRA"]>0)].copy()
-        cols=["FILIAL_NOME","CODIGO","DESCRICAO","EMB.","MEDIA_SISTEMA","ESTOQUE","RESERVA","COMPRADA","SUGESTAO COMPRA","SUGESTAO TRANSFERENCIA","RUPTURA CRÍTICA"]
-        st.dataframe(u[cols].sort_values(["RUPTURA CRÍTICA","SUGESTAO COMPRA"], ascending=[False,False]), use_container_width=True, hide_index=True) if not u.empty else st.info("Nenhum produto urgente.")
-    with t3:
-        p=all_df[all_df["ESTOQUE PARADO"]>0]
-        if not p.empty:
-            r=p.groupby("FILIAL_NOME",as_index=False)["ESTOQUE PARADO"].sum().sort_values("ESTOQUE PARADO",ascending=False)
-            st.plotly_chart(px.bar(r,x="FILIAL_NOME",y="ESTOQUE PARADO",title="Estoque parado por filial"), use_container_width=True)
-        p90df=all_df[all_df["PARADO_90D"]>0]
+
+    with tab2:
+        urgentes = all_df[
+            (coluna_numerica(all_df, "RUPTURA CRÍTICA") > 0) |
+            (coluna_numerica(all_df, "SUGESTAO COMPRA") > 0)
+        ].copy()
+        cols = [
+            "FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.", "MEDIA_SISTEMA",
+            "ESTOQUE", "RESERVA", "COMPRADA", "SUGESTAO COMPRA",
+            "SUGESTAO TRANSFERENCIA", "RUPTURA CRÍTICA"
+        ]
+        if not urgentes.empty:
+            st.dataframe(
+                urgentes[cols].sort_values(["RUPTURA CRÍTICA", "SUGESTAO COMPRA"], ascending=[False, False]),
+                use_container_width=True, hide_index=True
+            )
+        else:
+            st.info("Nenhum produto urgente.")
+
+    with tab3:
+        parados = all_df[coluna_numerica(all_df, "ESTOQUE PARADO") > 0]
+        if not parados.empty:
+            resumo_parado = (
+                parados.groupby("FILIAL_NOME", as_index=False)["ESTOQUE PARADO"]
+                .sum().sort_values("ESTOQUE PARADO", ascending=False)
+            )
+            st.plotly_chart(
+                px.bar(resumo_parado, x="FILIAL_NOME", y="ESTOQUE PARADO", title="Estoque parado por filial"),
+                use_container_width=True,
+            )
+        else:
+            st.info("Nenhum estoque parado.")
+
+        p90df = all_df[coluna_numerica(all_df, "PARADO_90D") > 0]
         st.subheader("🔄 Produtos com +90 dias sem venda")
-        cols=["FILIAL_NOME","CODIGO","DESCRICAO","EMB.","ESTOQUE","MEDIA_SISTEMA","SUGESTAO COMPRA","SUGESTAO TRANSFERENCIA","ORIGEM TRANSFERENCIA","DESTINO TRANSFERENCIA"]
-        st.dataframe(p90df[cols],use_container_width=True,hide_index=True) if not p90df.empty else st.info("Nenhum produto com +90 dias sem venda.")
-    with t4:
-        f=st.selectbox("Selecione a filial", list(dfs.keys()))
-        df=dfs[f]; cols=["CODIGO","DESCRICAO","EMB.","MEDIA_SISTEMA","ESTOQUE","RESERVA","COMPRADA","SUGESTAO COMPRA","SUGESTAO TRANSFERENCIA","ORIGEM TRANSFERENCIA","DESTINO TRANSFERENCIA","RUPTURA CRÍTICA","VENDA_ATIPICA","ESTOQUE PARADO","PARADO_90D","SITUACAO","MESES_ESTOQUE","FORNECEDOR"]
-        st.dataframe(df[cols],use_container_width=True,hide_index=True)
+        cols = [
+            "FILIAL_NOME", "CODIGO", "DESCRICAO", "EMB.", "ESTOQUE", "MEDIA_SISTEMA",
+            "SUGESTAO COMPRA", "SUGESTAO TRANSFERENCIA", "ORIGEM TRANSFERENCIA", "DESTINO TRANSFERENCIA"
+        ]
+        if not p90df.empty:
+            st.dataframe(p90df[cols], use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum produto com +90 dias sem venda.")
+
+    with tab4:
+        filial_selecionada = st.selectbox("Selecione a filial", list(dfs.keys()))
+        df = dfs[filial_selecionada]
+        cols = [
+            "CODIGO", "DESCRICAO", "EMB.", "MEDIA_SISTEMA", "ESTOQUE", "RESERVA", "COMPRADA",
+            "SUGESTAO COMPRA", "SUGESTAO TRANSFERENCIA", "ORIGEM TRANSFERENCIA",
+            "DESTINO TRANSFERENCIA", "RUPTURA CRÍTICA", "VENDA_ATIPICA", "ESTOQUE PARADO",
+            "PARADO_90D", "SITUACAO", "MESES_ESTOQUE", "FORNECEDOR"
+        ]
+        st.dataframe(df[cols], use_container_width=True, hide_index=True)
